@@ -2,6 +2,8 @@ import { adminRouter } from "~/server/api/routers/admin";
 import { campaignRouter } from "~/server/api/routers/campaign";
 import { characterRouter } from "~/server/api/routers/character";
 import { healthRouter } from "~/server/api/routers/health";
+import { sceneRouter } from "~/server/api/routers/scene";
+import { tokenRouter } from "~/server/api/routers/token";
 import { userRouter } from "~/server/api/routers/user";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
@@ -16,6 +18,8 @@ export const appRouter = createTRPCRouter({
   admin: adminRouter,
   campaign: campaignRouter,
   character: characterRouter,
+  scene: sceneRouter,
+  token: tokenRouter,
 });
 
 // export type definition of AppRouter

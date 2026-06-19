@@ -1,9 +1,40 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { requireMember } from "~/server/api/permissions";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const campaignRouter = createTRPCRouter({
+  get: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const campaign = await requireMember(
+        ctx.db,
+        input.campaignId,
+        ctx.session.user.id,
+      );
+      return { ...campaign, isGm: campaign.gmId === ctx.session.user.id };
+    }),
+
+  // GM-only: every character currently in the campaign, for token placement.
+  listMemberCharacters: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const campaign = await requireMember(
+        ctx.db,
+        input.campaignId,
+        ctx.session.user.id,
+      );
+      if (campaign.gmId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const links = await ctx.db.characterCampaign.findMany({
+        where: { campaignId: input.campaignId },
+        include: { character: true },
+      });
+      return links.map((l) => l.character);
+    }),
+
   create: protectedProcedure
     .input(
       z.object({

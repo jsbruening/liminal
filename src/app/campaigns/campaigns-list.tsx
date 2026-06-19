@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -87,14 +88,19 @@ export function CampaignsList() {
             key={campaign.id}
             divider
             secondaryAction={
-              <Button
-                size="small"
-                color="error"
-                onClick={() => leave.mutate({ campaignId: campaign.id })}
-                disabled={leave.isPending}
-              >
-                Leave
-              </Button>
+              <Stack direction="row" spacing={1}>
+                <Button size="small" component={Link} href={`/campaigns/${campaign.id}`}>
+                  Open
+                </Button>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => leave.mutate({ campaignId: campaign.id })}
+                  disabled={leave.isPending}
+                >
+                  Leave
+                </Button>
+              </Stack>
             }
           >
             <ListItemText primary={campaign.name} />
@@ -146,9 +152,14 @@ function GmCampaignRow({ campaign }: { campaign: Campaign }) {
       <ListItem
         divider
         secondaryAction={
-          <Button size="small" onClick={() => setExpanded((e) => !e)}>
-            {expanded ? "Hide requests" : "Join requests"}
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button size="small" component={Link} href={`/campaigns/${campaign.id}`}>
+              Open
+            </Button>
+            <Button size="small" onClick={() => setExpanded((e) => !e)}>
+              {expanded ? "Hide requests" : "Join requests"}
+            </Button>
+          </Stack>
         }
       >
         <ListItemText primary={campaign.name} />
