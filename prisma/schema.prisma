@@ -1,0 +1,337 @@
+// Liminal — D&D VTT data model.
+// Postgres + NextAuth (credentials + OAuth) + admin-approval gate.
+
+generator client {
+    provider = "prisma-client-js"
+    output   = "../generated/prisma"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// --- Auth (NextAuth standard models, extended) ---
+
+enum UserStatus {
+    PENDING
+    APPROVED
+    REJECTED
+}
+
+model User {
+    id            String     @id @default(cuid())
+    name          String?
+    email         String?    @unique
+    emailVerified DateTime?
+    image         String?
+    passwordHash  String? // null if OAuth-only account
+    status        UserStatus @default(PENDING)
+    isAdmin       Boolean    @default(false) // site-wide admin; unrelated to per-campaign GM status
+    approvedById  String?
+    approvedAt    DateTime?
+
+    accounts Account[] // NextAuth OAuth links
+    sessions Session[] // NextAuth sessions
+
+    characters         Character[]
+    campaignsGmed      Campaign[]            @relation("CampaignGM") // current GM of these campaigns (mantle is transferable)
+    campaignMembers    CampaignMember[]
+    joinRequests       CampaignJoinRequest[] @relation("JoinRequester")
+    reviewedJoinReqs   CampaignJoinRequest[] @relation("JoinReviewer")
+    tokenControlGrants TokenController[]
+    authoredNotes      CampaignNote[]
+    sceneFogReveals    SceneFogReveal[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model Account {
+    id                String  @id @default(cuid())
+    userId            String
+    type              String
+    provider          String
+    providerAccountId String
+    refresh_token     String?
+    access_token      String?
+    expires_at        Int?
+    token_type        String?
+    scope             String?
+    id_token          String?
+    session_state     String?
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerAccountId])
+}
+
+model Session {
+    id           String   @id @default(cuid())
+    sessionToken String   @unique
+    userId       String
+    expires      DateTime
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+    identifier String
+    token      String   @unique
+    expires    DateTime
+
+    @@unique([identifier, token])
+}
+
+// --- Core domain ---
+
+model Character {
+    id       String  @id @default(cuid())
+    name     String
+    tokenUrl String? // image used as the map token
+    notes    String?
+
+    ownerId String
+    owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+    campaigns    CharacterCampaign[] // a character can belong to multiple campaigns
+    tokens       Token[] // a character can appear as a token in 1+ scenes (must be in a scene's campaign via CharacterCampaign — enforced in app layer)
+    joinRequests CampaignJoinRequest[] // join requests that named this character
+    fogReveals   SceneFogReveal[] // this character's revealed-cell state per scene
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+// Join table: which campaigns a character has joined.
+// Independent from CampaignMember (the owning user's membership) so a user
+// could theoretically join a campaign before/without bringing a character,
+// but in practice the app should keep these in sync (joining with a
+// character should ensure both rows exist).
+model CharacterCampaign {
+    id String @id @default(cuid())
+
+    characterId String
+    character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    joinedAt DateTime @default(now())
+
+    @@unique([characterId, campaignId])
+}
+
+enum JoinRequestStatus {
+    PENDING
+    APPROVED
+    REJECTED
+}
+
+// Browsable enrollment: users see a list of open campaigns and request to
+// join; GM approves/rejects. Approval creates the CampaignMember (and
+// CharacterCampaign, if a character was specified) row.
+model CampaignJoinRequest {
+    id String @id @default(cuid())
+
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    requesterId String
+    requester   User   @relation("JoinRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+
+    characterId String? // which character they want to bring in, if any
+    character   Character? @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+    status       JoinRequestStatus @default(PENDING)
+    reviewedById String?
+    reviewedBy   User?             @relation("JoinReviewer", fields: [reviewedById], references: [id])
+    reviewedAt   DateTime?
+
+    requestedAt DateTime @default(now())
+
+    // No unique constraint here on purpose: a user can be rejected (or leave
+    // after approval) and request again later. Multiple historical rows per
+    // (campaignId, requesterId) are expected — always query for the most
+    // recent one (orderBy requestedAt desc) to determine current status.
+    @@index([campaignId, requesterId])
+}
+
+model Campaign {
+    id   String @id @default(cuid())
+    name String
+
+    isPubliclyListed Boolean @default(true) // shows up in the "campaigns you can enroll in" list
+
+    gmId String // current GM; mantle can be transferred by updating this field
+    gm   User   @relation("CampaignGM", fields: [gmId], references: [id])
+
+    members      CampaignMember[]
+    characters   CharacterCampaign[]
+    scenes       Scene[]
+    notes        CampaignNote[]
+    joinRequests CampaignJoinRequest[]
+
+    activeSceneId String? @unique
+    activeScene   Scene?  @relation("ActiveScene", fields: [activeSceneId], references: [id], onDelete: SetNull)
+    // NOTE: Prisma can't enforce that activeScene.campaignId == this campaign's id.
+    // Must be validated in the application layer whenever activeSceneId is set.
+    // onDelete: SetNull is required here — without it, deleting a Scene that
+    // happens to be the active one fails (or worse, blocks deleting the whole
+    // Campaign, since Scene.campaignId cascade-deletes scenes when a Campaign
+    // is deleted, but this FK would otherwise still be pointing at one of them).
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model CampaignMember {
+    id String @id @default(cuid())
+
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    userId String
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    personalNotes String? // private scratchpad, only visible to this member
+
+    joinedAt DateTime @default(now())
+
+    // NOTE (app layer, not enforceable here): when a CampaignMember row is
+    // deleted (leave or kick), the app must also:
+    //   1. delete that user's CharacterCampaign row(s) for this campaign
+    //   2. delete (not just hide) that character's Token rows in every Scene
+    //      belonging to this campaign
+    // Both of these need an explicit service function — there is no cascade
+    // that can express "delete tokens for this character, but only within
+    // scenes scoped to this specific campaign."
+    @@unique([campaignId, userId])
+}
+
+enum NoteVisibility {
+    GM_ONLY
+    ALL_MEMBERS
+}
+
+// Blog-style campaign journal: session logs, GM worldbuilding, shared lore.
+// Multiple entries over time, each with its own visibility.
+model CampaignNote {
+    id    String @id @default(cuid())
+    title String
+
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    authorId String
+    author   User   @relation(fields: [authorId], references: [id])
+
+    body       String
+    visibility NoteVisibility @default(ALL_MEMBERS)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model Scene {
+    id   String @id @default(cuid())
+    name String
+
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    mapImageUrl String // path on local disk, served statically
+    gridSize    Int    @default(70) // px per square
+    gridOffsetX Int    @default(0)
+    gridOffsetY Int    @default(0)
+    widthPx     Int
+    heightPx    Int
+
+    // GM override: when true, full map is visible to everyone regardless of
+    // per-character fog state (e.g. a well-lit boss arena).
+    fogLifted Boolean @default(false)
+
+    fogReveals SceneFogReveal[] // per-character revealed-cell state
+    tokens     Token[]
+
+    activeForCampaign Campaign? @relation("ActiveScene")
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+// Fog of war is per-character, not shared: each character's player only
+// sees what that character has revealed. Scene.fogLifted overrides this
+// for everyone when the GM wants the whole map visible.
+model SceneFogReveal {
+    id String @id @default(cuid())
+
+    sceneId String
+    scene   Scene  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+    characterId String
+    character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+    revealedCells Json @default("[]") // array of revealed grid cell coords
+
+    // who last triggered a reveal for this character's fog (usually that
+    // character's controller, but tracked for clarity/debugging)
+    updatedById String?
+    updatedBy   User?   @relation(fields: [updatedById], references: [id])
+
+    updatedAt DateTime @updatedAt
+
+    @@unique([sceneId, characterId])
+}
+
+enum TokenSize {
+    TINY
+    SMALL
+    MEDIUM
+    LARGE
+    HUGE
+    GIGANTIC
+}
+
+model Token {
+    id String @id @default(cuid())
+
+    sceneId String
+    scene   Scene  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+    characterId String?
+    character   Character? @relation(fields: [characterId], references: [id])
+
+    label    String? // for NPC/monster tokens with no Character record
+    imageUrl String?
+
+    gridX     Int
+    gridY     Int
+    size      TokenSize @default(MEDIUM)
+    sightFt   Int       @default(0) // 0 = no vision contribution (e.g. most NPCs)
+    isVisible Boolean   @default(true) // GM can hide a token entirely
+
+    // Who can move this token, beyond the defaults (the character's owner,
+    // and the campaign's current GM, who can ALWAYS move any token — neither
+    // of those defaults needs a row here). Each row is one additional user
+    // granted control, e.g. a delegate while the owner is away, or a
+    // GM-appointed co-controller.
+    controllers TokenController[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model TokenController {
+    id String @id @default(cuid())
+
+    tokenId String
+    token   Token  @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+    controlledById String
+    controlledBy   User   @relation(fields: [controlledById], references: [id], onDelete: Cascade)
+
+    grantedAt DateTime @default(now())
+
+    @@unique([tokenId, controlledById])
+}
