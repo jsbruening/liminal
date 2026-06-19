@@ -32,11 +32,19 @@ export default async function Home() {
             <Typography variant="body2" color="text.secondary">
               Signed in as {session.user.name ?? session.user.email}
             </Typography>
-            {session.user.isAdmin && (
-              <Button component={Link} href="/admin/users" variant="text">
-                Pending accounts
+            <Stack direction="row" spacing={2}>
+              <Button component={Link} href="/characters" variant="text">
+                Characters
               </Button>
-            )}
+              <Button component={Link} href="/campaigns" variant="text">
+                Campaigns
+              </Button>
+              {session.user.isAdmin && (
+                <Button component={Link} href="/admin/users" variant="text">
+                  Pending accounts
+                </Button>
+              )}
+            </Stack>
             <Button component={Link} href="/api/auth/signout" variant="outlined">
               Sign out
             </Button>

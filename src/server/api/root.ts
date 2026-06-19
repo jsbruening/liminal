@@ -1,4 +1,6 @@
 import { adminRouter } from "~/server/api/routers/admin";
+import { campaignRouter } from "~/server/api/routers/campaign";
+import { characterRouter } from "~/server/api/routers/character";
 import { healthRouter } from "~/server/api/routers/health";
 import { userRouter } from "~/server/api/routers/user";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
@@ -12,9 +14,11 @@ export const appRouter = createTRPCRouter({
   health: healthRouter,
   user: userRouter,
   admin: adminRouter,
+  campaign: campaignRouter,
+  character: characterRouter,
 });
 
-// export type definition of API
+// export type definition of AppRouter
 export type AppRouter = typeof appRouter;
 
 /**
