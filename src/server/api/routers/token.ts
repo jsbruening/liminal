@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { canControlToken, requireGm, requireMember } from "~/server/api/permissions";
+import { emitToRoom, rooms } from "~/server/socket";
+import { type db as Db } from "~/server/db";
 
 const FEET_PER_CELL = 5;
 
@@ -23,7 +25,7 @@ function visibleCells(centerX: number, centerY: number, sightFt: number) {
 // Merges newly-visible cells into a character's persisted fog state for a
 // scene (token-vision based fog of war — see schema.prisma SceneFogReveal).
 async function revealCellsForCharacter(
-  db: typeof import("~/server/db").db,
+  db: typeof Db,
   sceneId: string,
   characterId: string,
   newCells: { x: number; y: number }[],
@@ -85,6 +87,7 @@ export const tokenRouter = createTRPCRouter({
         );
       }
 
+      emitToRoom(rooms.scene(input.sceneId), "scene:changed");
       return token;
     }),
 
@@ -176,6 +179,7 @@ export const tokenRouter = createTRPCRouter({
         );
       }
 
+      emitToRoom(rooms.scene(token.sceneId), "scene:changed");
       return updated;
     }),
 
@@ -189,13 +193,15 @@ export const tokenRouter = createTRPCRouter({
       );
       if (!token || !allowed) throw new TRPCError({ code: "FORBIDDEN" });
 
-      return ctx.db.tokenController.upsert({
+      const result = await ctx.db.tokenController.upsert({
         where: {
           tokenId_controlledById: { tokenId: input.tokenId, controlledById: input.userId },
         },
         update: {},
         create: { tokenId: input.tokenId, controlledById: input.userId },
       });
+      emitToRoom(rooms.scene(token.sceneId), "scene:changed");
+      return result;
     }),
 
   revokeControl: protectedProcedure
@@ -211,6 +217,7 @@ export const tokenRouter = createTRPCRouter({
       await ctx.db.tokenController.deleteMany({
         where: { tokenId: input.tokenId, controlledById: input.userId },
       });
+      emitToRoom(rooms.scene(token.sceneId), "scene:changed");
       return { revoked: true };
     }),
 
@@ -224,6 +231,8 @@ export const tokenRouter = createTRPCRouter({
       if (!token) throw new TRPCError({ code: "NOT_FOUND" });
       await requireGm(ctx.db, token.scene.campaignId, ctx.session.user.id);
 
-      return ctx.db.token.delete({ where: { id: input.tokenId } });
+      const deleted = await ctx.db.token.delete({ where: { id: input.tokenId } });
+      emitToRoom(rooms.scene(token.sceneId), "scene:changed");
+      return deleted;
     }),
 });

@@ -4,7 +4,7 @@ import { type db as Db } from "~/server/db";
 
 export async function requireGm(db: typeof Db, campaignId: string, userId: string) {
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign || campaign.gmId !== userId) {
+  if (campaign?.gmId !== userId) {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
   return campaign;

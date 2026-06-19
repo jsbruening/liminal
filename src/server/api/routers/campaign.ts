@@ -109,7 +109,7 @@ export const campaignRouter = createTRPCRouter({
         const character = await ctx.db.character.findUnique({
           where: { id: input.characterId },
         });
-        if (!character || character.ownerId !== userId) {
+        if (character?.ownerId !== userId) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
       }
@@ -130,7 +130,7 @@ export const campaignRouter = createTRPCRouter({
       const campaign = await ctx.db.campaign.findUnique({
         where: { id: input.campaignId },
       });
-      if (!campaign || campaign.gmId !== ctx.session.user.id) {
+      if (campaign?.gmId !== ctx.session.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
 
@@ -153,7 +153,7 @@ export const campaignRouter = createTRPCRouter({
         where: { id: input.joinRequestId },
         include: { campaign: true },
       });
-      if (!joinRequest || joinRequest.campaign.gmId !== ctx.session.user.id) {
+      if (joinRequest?.campaign.gmId !== ctx.session.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
 

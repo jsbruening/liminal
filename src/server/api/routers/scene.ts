@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireGm, requireMember } from "~/server/api/permissions";
+import { emitToRoom, rooms } from "~/server/socket";
 
 export const sceneRouter = createTRPCRouter({
   create: protectedProcedure
@@ -18,7 +19,9 @@ export const sceneRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       await requireGm(ctx.db, input.campaignId, ctx.session.user.id);
-      return ctx.db.scene.create({ data: input });
+      const scene = await ctx.db.scene.create({ data: input });
+      emitToRoom(rooms.campaign(input.campaignId), "campaign:changed");
+      return scene;
     }),
 
   get: protectedProcedure
@@ -53,15 +56,17 @@ export const sceneRouter = createTRPCRouter({
         });
         // Enforced here, not by the schema: a campaign's active scene must
         // belong to that same campaign (see schema.prisma comment).
-        if (!scene || scene.campaignId !== input.campaignId) {
+        if (scene?.campaignId !== input.campaignId) {
           throw new TRPCError({ code: "BAD_REQUEST" });
         }
       }
 
-      return ctx.db.campaign.update({
+      const updated = await ctx.db.campaign.update({
         where: { id: input.campaignId },
         data: { activeSceneId: input.sceneId },
       });
+      emitToRoom(rooms.campaign(input.campaignId), "campaign:changed");
+      return updated;
     }),
 
   toggleFogLifted: protectedProcedure
@@ -73,10 +78,12 @@ export const sceneRouter = createTRPCRouter({
       if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
       await requireGm(ctx.db, scene.campaignId, ctx.session.user.id);
 
-      return ctx.db.scene.update({
+      const updated = await ctx.db.scene.update({
         where: { id: input.sceneId },
         data: { fogLifted: input.fogLifted },
       });
+      emitToRoom(rooms.scene(input.sceneId), "scene:changed");
+      return updated;
     }),
 
   delete: protectedProcedure
@@ -88,6 +95,8 @@ export const sceneRouter = createTRPCRouter({
       if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
       await requireGm(ctx.db, scene.campaignId, ctx.session.user.id);
 
-      return ctx.db.scene.delete({ where: { id: input.sceneId } });
+      const deleted = await ctx.db.scene.delete({ where: { id: input.sceneId } });
+      emitToRoom(rooms.campaign(scene.campaignId), "campaign:changed");
+      return deleted;
     }),
 });

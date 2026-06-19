@@ -37,7 +37,7 @@ export const characterRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       const character = await ctx.db.character.findUnique({ where: { id } });
-      if (!character || character.ownerId !== ctx.session.user.id) {
+      if (character?.ownerId !== ctx.session.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.db.character.update({ where: { id }, data });
@@ -49,7 +49,7 @@ export const characterRouter = createTRPCRouter({
       const character = await ctx.db.character.findUnique({
         where: { id: input.id },
       });
-      if (!character || character.ownerId !== ctx.session.user.id) {
+      if (character?.ownerId !== ctx.session.user.id) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
       return ctx.db.character.delete({ where: { id: input.id } });

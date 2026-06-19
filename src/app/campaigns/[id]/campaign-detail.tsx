@@ -11,6 +11,7 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { useRoomEvents } from "~/lib/use-room-events";
 import { api } from "~/trpc/react";
 import { SceneViewer } from "./scene-viewer";
 
@@ -42,6 +43,11 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   });
   const setActive = api.scene.setActive.useMutation({
     onSuccess: () => utils.campaign.get.invalidate({ campaignId }),
+  });
+
+  useRoomEvents(`campaign:${campaignId}`, "campaign:changed", () => {
+    void utils.campaign.get.invalidate({ campaignId });
+    void utils.scene.listForCampaign.invalidate({ campaignId });
   });
 
   async function handleCreateScene() {

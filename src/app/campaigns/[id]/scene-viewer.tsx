@@ -9,6 +9,7 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
+import { useRoomEvents } from "~/lib/use-room-events";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 type Character = RouterOutputs["campaign"]["listMemberCharacters"][number];
@@ -50,6 +51,8 @@ export function SceneViewer({
       await refetchAll();
     },
   });
+
+  useRoomEvents(`scene:${sceneId}`, "scene:changed", () => void refetchAll());
 
   const revealed = useMemo(
     () => new Set((fog?.revealedCells ?? []).map((c) => `${c.x},${c.y}`)),
