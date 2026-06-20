@@ -27,26 +27,15 @@ services:
       AUTH_DISCORD_ID: ${AUTH_DISCORD_ID:-}
       AUTH_DISCORD_SECRET: ${AUTH_DISCORD_SECRET:-}
       NODE_ENV: production
+    # Bound to localhost only — the Pi already runs a host-level Caddy
+    # instance fronting other self-hosted services on 80/443. That Caddy's
+    # Caddyfile (system config, not in this repo) reverse-proxies our domain
+    # to localhost:3000 instead of us running a second Caddy in Docker.
+    ports:
+      - "127.0.0.1:3000:3000"
     volumes:
       - uploads:/app/public/uploads
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    environment:
-      DOMAIN: ${DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
 
 volumes:
   postgres_data:
   uploads:
-  caddy_data:
-  caddy_config:
