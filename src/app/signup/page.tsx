@@ -84,7 +84,7 @@ export default function SignUpPage() {
         )}
 
         <Typography variant="body2" color="text.secondary">
-          Already have an account? <Link href="/api/auth/signin">Sign in</Link>
+          Already have an account? <Link href="/signin">Sign in</Link>
         </Typography>
       </Stack>
     </Box>

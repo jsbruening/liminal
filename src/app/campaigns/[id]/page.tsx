@@ -12,7 +12,7 @@ export default async function CampaignDetailPage({
   const { id } = await params;
   const session = await auth();
   if (!session?.user) {
-    redirect("/api/auth/signin");
+    redirect("/signin");
   }
 
   try {

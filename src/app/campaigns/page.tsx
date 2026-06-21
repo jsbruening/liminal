@@ -7,7 +7,7 @@ import { CampaignsList } from "./campaigns-list";
 export default async function CampaignsPage() {
   const session = await auth();
   if (!session?.user) {
-    redirect("/api/auth/signin");
+    redirect("/signin");
   }
 
   void api.campaign.listMine.prefetch();

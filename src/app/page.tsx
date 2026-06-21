@@ -51,7 +51,7 @@ export default async function Home() {
           </Stack>
         ) : (
           <Stack direction="row" spacing={2}>
-            <Button component={Link} href="/api/auth/signin" variant="contained" size="large">
+            <Button component={Link} href="/signin" variant="contained" size="large">
               Sign in
             </Button>
             <Button component={Link} href="/signup" variant="outlined" size="large">

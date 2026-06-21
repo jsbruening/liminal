@@ -7,7 +7,7 @@ import { CharactersList } from "./characters-list";
 export default async function CharactersPage() {
   const session = await auth();
   if (!session?.user) {
-    redirect("/api/auth/signin");
+    redirect("/signin");
   }
 
   void api.character.listMine.prefetch();

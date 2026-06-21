@@ -68,6 +68,9 @@ export const authConfig = {
   ],
   adapter: PrismaAdapter(db),
   session: { strategy: "jwt" },
+  pages: {
+    signIn: "/signin",
+  },
   callbacks: {
     // Block sign-in entirely for accounts an admin hasn't approved yet,
     // regardless of whether they came in via credentials or OAuth.
