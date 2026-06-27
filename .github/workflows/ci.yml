@@ -11,6 +11,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # No real secrets exist in this context — only used for Zod env
+    # validation (next.config.js loads src/env.js for lint/build alike),
+    # never for an actual connection.
+    env:
+      SKIP_ENV_VALIDATION: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -22,10 +27,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-
-      - name: Build
-        run: npm run build
-        env:
-          # No real secrets exist in this context — only used for Zod env
-          # validation at build time, never for an actual connection.
-          SKIP_ENV_VALIDATION: "1"
+      - run: npm run build
