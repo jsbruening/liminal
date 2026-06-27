@@ -1,0 +1,35 @@
+name: Deploy
+
+# Only fires on push to master — and master's branch protection requires at
+# least one approving review and blocks direct pushes (enforced even for
+# admins), so in practice this only ever runs after a PR has been reviewed,
+# approved, and merged. Runs on the self-hosted runner living on the Pi
+# itself, so no SSH credentials to the Pi ever need to exist in GitHub
+# Secrets — the runner already IS the deploy target.
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, self-hosted-pi]
+    steps:
+      - name: Pull latest and rebuild
+        run: |
+          set -e
+          cd ~/liminal
+          git fetch origin master
+          git reset --hard origin/master
+          docker compose --env-file .env.production up -d --build app
+
+      - name: Prune old images/build cache
+        # The Pi's SD card has filled up twice during manual deploys —
+        # always clean up after a rebuild rather than letting it accumulate.
+        run: |
+          docker builder prune -f
+          docker image prune -f
+
+      - name: Health check
+        run: |
+          sleep 5
+          curl -sf http://localhost:3000/ -o /dev/null
