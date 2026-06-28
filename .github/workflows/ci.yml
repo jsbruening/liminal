@@ -1,0 +1,30 @@
+name: CI
+
+# Runs on every PR targeting master, including from forks. GitHub never
+# exposes repo secrets to pull_request-triggered workflows, so this is safe
+# to run on contributor PRs before they've been reviewed — it only checks
+# that the code builds, it can't touch the Pi or any credentials.
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # No real secrets exist in this context — only used for Zod env
+    # validation (next.config.js loads src/env.js for lint/build alike),
+    # never for an actual connection.
+    env:
+      SKIP_ENV_VALIDATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
