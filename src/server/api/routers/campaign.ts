@@ -52,17 +52,27 @@ export const campaignRouter = createTRPCRouter({
       }),
     ),
 
-  // Campaigns the current user GMs, or is a member of.
+  // Campaigns the current user GMs, or is a member of — enriched with the
+  // fields the dashboard cards need (GM name, player count, active scene
+  // name). "Last played" isn't tracked explicitly; updatedAt is used as an
+  // approximation.
   listMine: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
+    const include = {
+      gm: { select: { name: true, email: true } },
+      activeScene: { select: { name: true } },
+      _count: { select: { members: true } },
+    } as const;
     const [gmed, joined] = await Promise.all([
       ctx.db.campaign.findMany({
         where: { gmId: userId },
-        orderBy: { createdAt: "desc" },
+        orderBy: { updatedAt: "desc" },
+        include,
       }),
       ctx.db.campaign.findMany({
         where: { members: { some: { userId } } },
-        orderBy: { createdAt: "desc" },
+        orderBy: { updatedAt: "desc" },
+        include,
       }),
     ]);
     return { gmed, joined };

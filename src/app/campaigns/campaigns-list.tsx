@@ -1,209 +1,338 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
-import Collapse from "@mui/material/Collapse";
-import Divider from "@mui/material/Divider";
+import Dialog from "@mui/material/Dialog";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import MenuItem from "@mui/material/MenuItem";
+import PeopleAltOutlinedIcon from "@mui/icons-material/PeopleAltOutlined";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { AppNav } from "~/app/_components/app-nav";
 import { api, type RouterOutputs } from "~/trpc/react";
 
-type Campaign = RouterOutputs["campaign"]["listMine"]["gmed"][number];
+type MineCampaign = RouterOutputs["campaign"]["listMine"]["gmed"][number];
+
+function timeAgo(value: Date | string) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  const units: [number, string][] = [
+    [60, "second"],
+    [60, "minute"],
+    [24, "hour"],
+    [30, "day"],
+    [12, "month"],
+  ];
+  let amount = seconds;
+  for (const [divisor, label] of units) {
+    if (amount < divisor) {
+      const n = Math.max(1, Math.floor(amount));
+      return label === "second" ? "just now" : `${n} ${label}${n === 1 ? "" : "s"} ago`;
+    }
+    amount = amount / divisor;
+  }
+  const years = Math.floor(amount);
+  return `${years} year${years === 1 ? "" : "s"} ago`;
+}
 
 export function CampaignsList() {
+  const router = useRouter();
   const utils = api.useUtils();
   const { data: mine } = api.campaign.listMine.useQuery();
   const { data: publicCampaigns } = api.campaign.listPublic.useQuery();
   const { data: characters } = api.character.listMine.useQuery();
 
+  const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
+
   const create = api.campaign.create.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (campaign) => {
+      setModalOpen(false);
       setName("");
       await utils.campaign.listMine.invalidate();
+      router.push(`/campaigns/${campaign.id}`);
     },
   });
 
-  const leave = api.campaign.leave.useMutation({
-    onSuccess: () => utils.campaign.listMine.invalidate(),
-  });
+  const all = [
+    ...(mine?.gmed.map((c) => ({ ...c, isGm: true })) ?? []),
+    ...(mine?.joined.map((c) => ({ ...c, isGm: false })) ?? []),
+  ];
 
   return (
-    <Box sx={{ maxWidth: 700, mx: "auto", px: 3, py: 6 }}>
-      <Typography variant="h3" sx={{ mb: 3 }}>
-        Campaigns
-      </Typography>
+    <Box>
+      <AppNav />
 
-      <Stack
-        component="form"
-        direction="row"
-        spacing={2}
-        sx={{ mb: 5 }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim()) create.mutate({ name: name.trim() });
+      <Box sx={{ maxWidth: 1040, mx: "auto", px: 4, py: 6.5 }}>
+        <Stack
+          direction="row"
+          sx={{ alignItems: "flex-end", justifyContent: "space-between", mb: 5 }}
+        >
+          <Box>
+            <Typography variant="h1" sx={{ fontSize: { xs: 32, sm: 40 } }}>
+              Campaigns
+            </Typography>
+            <Typography sx={{ fontSize: 14, color: "rgba(255,255,255,0.38)" }}>
+              {all.length} campaign{all.length === 1 ? "" : "s"}
+            </Typography>
+          </Box>
+          <Button variant="contained" onClick={() => setModalOpen(true)}>
+            + New campaign
+          </Button>
+        </Stack>
+
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
+            gap: 2.25,
+          }}
+        >
+          {all.map((campaign) => (
+            <CampaignCard key={campaign.id} campaign={campaign} />
+          ))}
+
+          <Box
+            onClick={() => setModalOpen(true)}
+            sx={{
+              border: "1px dashed rgba(255,255,255,0.09)",
+              borderRadius: "10px",
+              minHeight: 200,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 1.25,
+              cursor: "pointer",
+              "&:hover": { borderColor: "rgba(194,163,107,0.28)" },
+            }}
+          >
+            <Box
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                border: "1px solid rgba(255,255,255,0.14)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 18,
+                color: "rgba(255,255,255,0.22)",
+              }}
+            >
+              +
+            </Box>
+            <Typography sx={{ fontSize: 13, color: "rgba(255,255,255,0.28)" }}>
+              New campaign
+            </Typography>
+          </Box>
+        </Box>
+
+        {publicCampaigns && publicCampaigns.length > 0 && (
+          <Box sx={{ mt: 7 }}>
+            <Typography variant="h5" sx={{ mb: 2 }}>
+              Browse campaigns
+            </Typography>
+            <List>
+              {publicCampaigns.map((campaign) => (
+                <BrowseCampaignRow
+                  key={campaign.id}
+                  campaign={campaign}
+                  characters={characters ?? []}
+                />
+              ))}
+            </List>
+          </Box>
+        )}
+      </Box>
+
+      <Dialog
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        slotProps={{
+          paper: {
+            sx: { bgcolor: "background.paper", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", p: 4, width: "100%", maxWidth: 440 },
+          },
         }}
       >
-        <TextField
-          label="New campaign name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          size="small"
-          fullWidth
-        />
-        <Button type="submit" variant="contained" disabled={create.isPending}>
-          Create
-        </Button>
-      </Stack>
-
-      <Typography variant="h5" sx={{ mb: 1 }}>
-        You GM
-      </Typography>
-      <List sx={{ mb: 4 }}>
-        {mine?.gmed.map((campaign) => (
-          <GmCampaignRow key={campaign.id} campaign={campaign} />
-        ))}
-        {mine?.gmed.length === 0 && (
-          <Typography color="text.secondary">
-            You aren&apos;t GMing any campaigns yet.
+        <Typography variant="h2" sx={{ fontSize: 26, mb: 0.75 }}>
+          New campaign
+        </Typography>
+        <Typography sx={{ fontSize: 13, color: "rgba(255,255,255,0.4)", mb: 3 }}>
+          You&apos;ll be the GM. Invite players after creating.
+        </Typography>
+        <Stack spacing={0.75} sx={{ mb: 2.5 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.48)" }}>
+            Campaign name
           </Typography>
-        )}
-      </List>
-
-      <Typography variant="h5" sx={{ mb: 1 }}>
-        You&apos;ve joined
-      </Typography>
-      <List sx={{ mb: 4 }}>
-        {mine?.joined.map((campaign) => (
-          <ListItem
-            key={campaign.id}
-            divider
-            secondaryAction={
-              <Stack direction="row" spacing={1}>
-                <Button size="small" component={Link} href={`/campaigns/${campaign.id}`}>
-                  Open
-                </Button>
-                <Button
-                  size="small"
-                  color="error"
-                  onClick={() => leave.mutate({ campaignId: campaign.id })}
-                  disabled={leave.isPending}
-                >
-                  Leave
-                </Button>
-              </Stack>
-            }
-          >
-            <ListItemText primary={campaign.name} />
-          </ListItem>
-        ))}
-        {mine?.joined.length === 0 && (
-          <Typography color="text.secondary">
-            You haven&apos;t joined any campaigns yet.
-          </Typography>
-        )}
-      </List>
-
-      <Typography variant="h5" sx={{ mb: 1 }}>
-        Browse campaigns
-      </Typography>
-      <List>
-        {publicCampaigns?.map((campaign) => (
-          <BrowseCampaignRow
-            key={campaign.id}
-            campaign={campaign}
-            characters={characters ?? []}
+          <TextField
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. The Forgotten Keep"
+            autoFocus
+            fullWidth
+            size="small"
           />
-        ))}
-        {publicCampaigns?.length === 0 && (
-          <Typography color="text.secondary">
-            No open campaigns to join right now.
-          </Typography>
-        )}
-      </List>
+        </Stack>
+        <Stack direction="row" spacing={1.25}>
+          <Button
+            fullWidth
+            variant="outlined"
+            onClick={() => setModalOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            fullWidth
+            variant="contained"
+            disabled={!name.trim() || create.isPending}
+            onClick={() => create.mutate({ name: name.trim() })}
+            sx={{ flexGrow: 2 }}
+          >
+            Create campaign
+          </Button>
+        </Stack>
+      </Dialog>
     </Box>
   );
 }
 
-function GmCampaignRow({ campaign }: { campaign: Campaign }) {
-  const [expanded, setExpanded] = useState(false);
-  const utils = api.useUtils();
-
-  const { data: requests } = api.campaign.listJoinRequests.useQuery(
-    { campaignId: campaign.id },
-    { enabled: expanded },
-  );
-
-  const respond = api.campaign.respondToJoinRequest.useMutation({
-    onSuccess: () => utils.campaign.listJoinRequests.invalidate({ campaignId: campaign.id }),
-  });
+function CampaignCard({
+  campaign,
+}: {
+  campaign: MineCampaign & { isGm: boolean };
+}) {
+  const router = useRouter();
 
   return (
-    <>
-      <ListItem
-        divider
-        secondaryAction={
-          <Stack direction="row" spacing={1}>
-            <Button size="small" component={Link} href={`/campaigns/${campaign.id}`}>
-              Open
-            </Button>
-            <Button size="small" onClick={() => setExpanded((e) => !e)}>
-              {expanded ? "Hide requests" : "Join requests"}
-            </Button>
-          </Stack>
-        }
+    <Box
+      onClick={() => router.push(`/campaigns/${campaign.id}`)}
+      sx={{
+        bgcolor: "background.paper",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "10px",
+        overflow: "hidden",
+        cursor: "pointer",
+        transition: "border-color 0.15s, box-shadow 0.15s",
+        "&:hover": {
+          borderColor: "rgba(255,255,255,0.15)",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+        },
+      }}
+    >
+      <Box
+        sx={{
+          height: 164,
+          bgcolor: "#111310",
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
       >
-        <ListItemText primary={campaign.name} />
-      </ListItem>
-      <Collapse in={expanded}>
-        <Stack spacing={1} sx={{ pl: 2, py: 1 }}>
-          {requests?.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No pending requests.
+        <Typography
+          sx={{
+            fontSize: 11,
+            color: "rgba(255,255,255,0.15)",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
+        >
+          Campaign art
+        </Typography>
+        <Box
+          sx={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: campaign.isGm ? "#13151a" : "rgba(255,255,255,0.75)",
+            bgcolor: campaign.isGm ? "primary.main" : "rgba(0,0,0,0.55)",
+            px: 1,
+            py: 0.375,
+            borderRadius: "4px",
+          }}
+        >
+          {campaign.isGm ? "GM" : "Player"}
+        </Box>
+      </Box>
+
+      <Box sx={{ p: "18px 20px 20px" }}>
+        <Typography variant="h2" sx={{ fontSize: 21, mb: 1.25 }}>
+          {campaign.name}
+        </Typography>
+
+        <Stack direction="row" spacing={1.75} sx={{ alignItems: "center", mb: 2 }}>
+          <Stack direction="row" spacing={0.625} sx={{ alignItems: "center" }}>
+            <PeopleAltOutlinedIcon sx={{ fontSize: 13, color: "rgba(255,255,255,0.28)" }} />
+            <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.38)" }}>
+              {campaign._count.members} player{campaign._count.members === 1 ? "" : "s"}
+            </Typography>
+          </Stack>
+          {!campaign.isGm && (
+            <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+              GM: {campaign.gm.name ?? campaign.gm.email}
             </Typography>
           )}
-          {requests?.map((req) => (
-            <Stack
-              key={req.id}
-              direction="row"
-              spacing={2}
-              sx={{ alignItems: "center", justifyContent: "space-between" }}
-            >
-              <Typography variant="body2">
-                {req.requester.name ?? req.requester.email}
-                {req.character && ` — bringing ${req.character.name}`}
-              </Typography>
-              <Stack direction="row" spacing={1}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => respond.mutate({ joinRequestId: req.id, approve: true })}
-                >
-                  Approve
-                </Button>
-                <Button
-                  size="small"
-                  color="error"
-                  onClick={() => respond.mutate({ joinRequestId: req.id, approve: false })}
-                >
-                  Reject
-                </Button>
-              </Stack>
-            </Stack>
-          ))}
         </Stack>
-        <Divider />
-      </Collapse>
-    </>
+
+        <Box sx={{ height: "1px", bgcolor: "rgba(255,255,255,0.06)", mb: 1.75 }} />
+
+        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
+          {campaign.activeScene ? (
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+              <Box
+                sx={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  bgcolor: "#5a9e6f",
+                  boxShadow: "0 0 5px rgba(90,158,111,0.55)",
+                }}
+              />
+              <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.52)" }}>
+                {campaign.activeScene.name}
+              </Typography>
+            </Stack>
+          ) : (
+            <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.22)", fontStyle: "italic" }}>
+              No active scene
+            </Typography>
+          )}
+          <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.2)" }}>
+            {timeAgo(campaign.updatedAt)}
+          </Typography>
+        </Stack>
+
+        {campaign.activeScene && (
+          <Button
+            fullWidth
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/campaigns/${campaign.id}`);
+            }}
+            sx={{
+              mt: 1.75,
+              border: "1px solid rgba(194,163,107,0.28)",
+              color: "primary.main",
+              "&:hover": { bgcolor: "rgba(194,163,107,0.08)", borderColor: "rgba(194,163,107,0.5)" },
+            }}
+          >
+            Join session →
+          </Button>
+        )}
+      </Box>
+    </Box>
   );
 }
 

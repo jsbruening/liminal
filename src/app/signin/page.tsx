@@ -1,22 +1,14 @@
 import { Suspense } from "react";
-import Box from "@mui/material/Box";
 
+import { AuthShell } from "~/app/_components/auth-shell";
 import { SignInForm } from "./signin-form";
 
 export default function SignInPage() {
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        px: 3,
-      }}
-    >
+    <AuthShell>
       <Suspense>
         <SignInForm />
       </Suspense>
-    </Box>
+    </AuthShell>
   );
 }

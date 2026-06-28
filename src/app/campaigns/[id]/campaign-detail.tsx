@@ -11,6 +11,9 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { AppNav } from "~/app/_components/app-nav";
+import { JoinRequestsPanel } from "./join-requests-panel";
+
 import { useRoomEvents } from "~/lib/use-room-events";
 import { api } from "~/trpc/react";
 import { SceneViewer } from "./scene-viewer";
@@ -87,11 +90,15 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   if (!campaign) return null;
 
   return (
-    <Box sx={{ maxWidth: 1000, mx: "auto", px: 3, py: 6 }}>
+    <Box>
+      <AppNav />
+      <Box sx={{ maxWidth: 1000, mx: "auto", px: 3, py: 6 }}>
       <Typography variant="h3" sx={{ mb: 1 }}>
         {campaign.name}
       </Typography>
       {campaign.isGm && <Chip label="You are the GM" size="small" sx={{ mb: 3 }} />}
+
+      {campaign.isGm && <JoinRequestsPanel campaignId={campaignId} />}
 
       {campaign.isGm && (
         <Box sx={{ mb: 4 }}>
@@ -151,6 +158,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
       ) : (
         <Typography color="text.secondary">No active scene yet.</Typography>
       )}
+      </Box>
     </Box>
   );
 }

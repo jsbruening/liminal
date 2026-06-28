@@ -12,6 +12,7 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { AppNav } from "~/app/_components/app-nav";
 import { api } from "~/trpc/react";
 
 export function CharactersList() {
@@ -27,7 +28,9 @@ export function CharactersList() {
   });
 
   return (
-    <Box sx={{ maxWidth: 600, mx: "auto", px: 3, py: 6 }}>
+    <Box>
+      <AppNav />
+      <Box sx={{ maxWidth: 600, mx: "auto", px: 3, py: 6 }}>
       <Typography variant="h3" sx={{ mb: 3 }}>
         Your characters
       </Typography>
@@ -75,6 +78,7 @@ export function CharactersList() {
           </ListItem>
         ))}
       </List>
+      </Box>
     </Box>
   );
 }
