@@ -15,6 +15,12 @@ services:
       retries: 10
 
   app:
+    # Built on GitHub Actions and pushed to GHCR, not built on the Pi —
+    # native ARM builds (npm ci + next build) were heavy enough to starve
+    # the Pi's I/O and wedge the Docker daemon mid-build. `build:` is kept
+    # so local dev can still `docker compose build` against the Dockerfile;
+    # the deploy workflow uses `docker compose pull` instead.
+    image: ghcr.io/jsbruening/liminal:latest
     build: .
     restart: unless-stopped
     depends_on:
