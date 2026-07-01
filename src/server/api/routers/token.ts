@@ -58,6 +58,7 @@ export const tokenRouter = createTRPCRouter({
       z.object({
         sceneId: z.string(),
         characterId: z.string().optional(),
+        npcTemplateId: z.string().optional(),
         label: z.string().max(100).optional(),
         imageUrl: z.string().optional(),
         gridX: z.number().int(),
@@ -74,6 +75,15 @@ export const tokenRouter = createTRPCRouter({
       });
       if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
       await requireGm(ctx.db, scene.campaignId, ctx.session.user.id);
+
+      if (input.npcTemplateId) {
+        const template = await ctx.db.npcTemplate.findUnique({
+          where: { id: input.npcTemplateId },
+        });
+        if (template?.campaignId !== scene.campaignId) {
+          throw new TRPCError({ code: "BAD_REQUEST" });
+        }
+      }
 
       const token = await ctx.db.token.create({ data: input });
 
@@ -107,7 +117,7 @@ export const tokenRouter = createTRPCRouter({
 
       return ctx.db.token.findMany({
         where: { sceneId: input.sceneId, ...(isGm ? {} : { isVisible: true }) },
-        include: { character: true, controllers: true },
+        include: { character: true, npcTemplate: true, controllers: true },
       });
     }),
 

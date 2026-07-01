@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { requireMember } from "~/server/api/permissions";
+import { requireGm, requireMember } from "~/server/api/permissions";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const campaignRouter = createTRPCRouter({
@@ -35,11 +35,65 @@ export const campaignRouter = createTRPCRouter({
       return links.map((l) => l.character);
     }),
 
+  // GM-only: add one of the GM's own characters to their own campaign's
+  // roster, bypassing the join-request flow (which is for other players —
+  // "Browse campaigns" deliberately excludes campaigns the user already GMs,
+  // so a GM has no other path to bring their own character in).
+  addOwnCharacter: protectedProcedure
+    .input(z.object({ campaignId: z.string(), characterId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireGm(ctx.db, input.campaignId, ctx.session.user.id);
+
+      const character = await ctx.db.character.findUnique({
+        where: { id: input.characterId },
+      });
+      if (character?.ownerId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      return ctx.db.characterCampaign.upsert({
+        where: {
+          characterId_campaignId: {
+            characterId: input.characterId,
+            campaignId: input.campaignId,
+          },
+        },
+        update: {},
+        create: { characterId: input.characterId, campaignId: input.campaignId },
+      });
+    }),
+
+  // GM-only: set the avatar for any character in this campaign's roster
+  // (not just the GM's own) — lets the GM art-up the stage from the sidebar
+  // without each player having to do it themselves from /characters. Scoped
+  // to avatar only, not full character edit rights.
+  setCharacterAvatar: protectedProcedure
+    .input(z.object({ campaignId: z.string(), characterId: z.string(), tokenUrl: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireGm(ctx.db, input.campaignId, ctx.session.user.id);
+
+      const link = await ctx.db.characterCampaign.findUnique({
+        where: {
+          characterId_campaignId: {
+            characterId: input.characterId,
+            campaignId: input.campaignId,
+          },
+        },
+      });
+      if (!link) throw new TRPCError({ code: "NOT_FOUND" });
+
+      return ctx.db.character.update({
+        where: { id: input.characterId },
+        data: { tokenUrl: input.tokenUrl },
+      });
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
         isPubliclyListed: z.boolean().default(true),
+        coverImageUrl: z.string().optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -47,10 +101,28 @@ export const campaignRouter = createTRPCRouter({
         data: {
           name: input.name,
           isPubliclyListed: input.isPubliclyListed,
+          coverImageUrl: input.coverImageUrl,
           gmId: ctx.session.user.id,
         },
       }),
     ),
+
+  // GM-only: set or replace the campaign's cover image.
+  setCoverImage: protectedProcedure
+    .input(z.object({ campaignId: z.string(), coverImageUrl: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const campaign = await ctx.db.campaign.findUnique({
+        where: { id: input.campaignId },
+      });
+      if (campaign?.gmId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      return ctx.db.campaign.update({
+        where: { id: input.campaignId },
+        data: { coverImageUrl: input.coverImageUrl },
+      });
+    }),
 
   // Campaigns the current user GMs, or is a member of — enriched with the
   // fields the dashboard cards need (GM name, player count, active scene

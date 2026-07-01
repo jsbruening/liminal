@@ -10,7 +10,7 @@ export default async function AdminUsersPage() {
     redirect("/");
   }
 
-  void api.admin.listPendingUsers.prefetch();
+  await api.admin.listPendingUsers.prefetch();
 
   return (
     <HydrateClient>

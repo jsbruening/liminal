@@ -10,7 +10,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         <Typography
           sx={{
             fontFamily: "var(--font-serif), serif",
-            fontWeight: 600,
+            fontWeight: 400,
             fontSize: 20,
             color: "primary.main",
             letterSpacing: "0.02em",

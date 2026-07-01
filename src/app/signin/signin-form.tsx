@@ -71,30 +71,32 @@ export function SignInForm() {
         onSubmit={handleSubmit}
         sx={{ bgcolor: "background.paper", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "8px", p: "28px 28px 24px" }}
       >
-        <Stack spacing={0.75} sx={{ mb: 2 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.5)" }}>Email</Typography>
-          <TextField
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-            fullWidth
-            size="small"
-          />
-        </Stack>
-        <Stack spacing={0.75} sx={{ mb: 3 }}>
-          <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.5)" }}>Password</Typography>
-          <TextField
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-            fullWidth
-            size="small"
-          />
-        </Stack>
+        <TextField
+          type="email"
+          name="email"
+          id="email"
+          autoComplete="email"
+          label="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          fullWidth
+          size="small"
+          sx={{ mb: 2 }}
+        />
+        <TextField
+          type="password"
+          name="password"
+          id="password"
+          autoComplete="current-password"
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          fullWidth
+          size="small"
+          sx={{ mb: 3 }}
+        />
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}

@@ -10,7 +10,7 @@ export default async function CharactersPage() {
     redirect("/signin");
   }
 
-  void api.character.listMine.prefetch();
+  await api.character.listMine.prefetch();
 
   return (
     <HydrateClient>

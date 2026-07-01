@@ -161,6 +161,8 @@ model Campaign {
     id   String @id @default(cuid())
     name String
 
+    coverImageUrl String?
+
     isPubliclyListed Boolean @default(true) // shows up in the "campaigns you can enroll in" list
 
     gmId String // current GM; mantle can be transferred by updating this field
@@ -171,6 +173,7 @@ model Campaign {
     scenes       Scene[]
     notes        CampaignNote[]
     joinRequests CampaignJoinRequest[]
+    npcTemplates NpcTemplate[]
 
     activeSceneId String? @unique
     activeScene   Scene?  @relation("ActiveScene", fields: [activeSceneId], references: [id], onDelete: SetNull)
@@ -284,6 +287,29 @@ model SceneFogReveal {
     @@unique([sceneId, characterId])
 }
 
+// A GM's reusable NPC/monster roster for a campaign — e.g. "Orc" with art and
+// a stat block, dragged onto the map repeatedly to spawn instances, instead
+// of being recreated from scratch every session. Optionally seeded from the
+// public D&D 5e SRD API (see src/server/srd.ts); statBlock is the raw
+// imported JSON (or null for a hand-made NPC with no stats attached).
+model NpcTemplate {
+    id String @id @default(cuid())
+
+    campaignId String
+    campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+    name      String
+    avatarUrl String?
+    sightFt   Int     @default(0)
+    source    String? // e.g. "SRD: Goblin" — null for a hand-made NPC
+    statBlock Json?
+
+    tokens Token[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
 enum TokenSize {
     TINY
     SMALL
@@ -301,6 +327,9 @@ model Token {
 
     characterId String?
     character   Character? @relation(fields: [characterId], references: [id])
+
+    npcTemplateId String?
+    npcTemplate   NpcTemplate? @relation(fields: [npcTemplateId], references: [id], onDelete: SetNull)
 
     label    String? // for NPC/monster tokens with no Character record
     imageUrl String?

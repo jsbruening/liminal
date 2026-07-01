@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 
 import { auth } from "~/server/auth";
 import { api, HydrateClient } from "~/trpc/server";
-import { CampaignDetail } from "./campaign-detail";
+import { Stage } from "./stage";
 
-export default async function CampaignDetailPage({
+export default async function PlayPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -22,11 +22,15 @@ export default async function CampaignDetailPage({
     redirect("/campaigns");
   }
 
-  const prefetches = [
-    api.campaign.get.prefetch({ campaignId: id }),
-    api.scene.listForCampaign.prefetch({ campaignId: id }),
-    api.character.listMine.prefetch(),
-  ];
+  const prefetches = [api.campaign.get.prefetch({ campaignId: id })];
+  if (campaign.activeSceneId) {
+    const sceneId = campaign.activeSceneId;
+    prefetches.push(
+      api.scene.get.prefetch({ sceneId }),
+      api.token.listForScene.prefetch({ sceneId }),
+      api.token.getFogForViewer.prefetch({ sceneId }),
+    );
+  }
   if (campaign.isGm) {
     prefetches.push(
       api.campaign.listMemberCharacters.prefetch({ campaignId: id }),
@@ -37,7 +41,7 @@ export default async function CampaignDetailPage({
 
   return (
     <HydrateClient>
-      <CampaignDetail campaignId={id} />
+      <Stage campaignId={id} />
     </HydrateClient>
   );
 }

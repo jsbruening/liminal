@@ -10,9 +10,11 @@ export default async function CampaignsPage() {
     redirect("/signin");
   }
 
-  void api.campaign.listMine.prefetch();
-  void api.campaign.listPublic.prefetch();
-  void api.character.listMine.prefetch();
+  await Promise.all([
+    api.campaign.listMine.prefetch(),
+    api.campaign.listPublic.prefetch(),
+    api.character.listMine.prefetch(),
+  ]);
 
   return (
     <HydrateClient>

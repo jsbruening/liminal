@@ -1,10 +1,12 @@
-import { Inter, Cormorant_Garamond } from "next/font/google";
+import { Inter, Instrument_Serif } from "next/font/google";
 import { createTheme } from "@mui/material/styles";
 
 export const sans = Inter({ subsets: ["latin"], variable: "--font-sans" });
-export const serif = Cormorant_Garamond({
+// Instrument Serif only ships in regular weight (no bold) — headings lean
+// on size/letter-spacing for emphasis instead of weight.
+export const serif = Instrument_Serif({
   subsets: ["latin"],
-  weight: ["500", "600"],
+  weight: ["400"],
   variable: "--font-serif",
 });
 
@@ -35,10 +37,10 @@ const theme = createTheme({
   },
   typography: {
     fontFamily: "var(--font-sans), system-ui, sans-serif",
-    h1: { fontFamily: "var(--font-serif), serif", fontWeight: 600 },
-    h2: { fontFamily: "var(--font-serif), serif", fontWeight: 600 },
-    h3: { fontFamily: "var(--font-serif), serif", fontWeight: 600 },
-    h4: { fontFamily: "var(--font-serif), serif", fontWeight: 600 },
+    h1: { fontFamily: "var(--font-serif), serif", fontWeight: 400 },
+    h2: { fontFamily: "var(--font-serif), serif", fontWeight: 400 },
+    h3: { fontFamily: "var(--font-serif), serif", fontWeight: 400 },
+    h4: { fontFamily: "var(--font-serif), serif", fontWeight: 400 },
     button: { fontWeight: 500, textTransform: "none" },
   },
   shape: {

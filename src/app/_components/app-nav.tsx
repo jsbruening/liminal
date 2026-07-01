@@ -18,6 +18,10 @@ export function AppNav() {
   const pathname = usePathname();
   const { data: session } = useSession();
 
+  const navLinks = session?.user?.isAdmin
+    ? [...NAV_LINKS, { href: "/admin/users", label: "Admin" }]
+    : NAV_LINKS;
+
   return (
     <AppBar
       position="sticky"
@@ -37,7 +41,7 @@ export function AppNav() {
           <Typography
             sx={{
               fontFamily: "var(--font-serif), serif",
-              fontWeight: 600,
+              fontWeight: 400,
               fontSize: 20,
               color: "primary.main",
               letterSpacing: "0.02em",
@@ -48,7 +52,7 @@ export function AppNav() {
         </Box>
 
         <Box component="nav" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {NAV_LINKS.map((link) => {
+          {navLinks.map((link) => {
             const active = pathname.startsWith(link.href);
             return (
               <Box

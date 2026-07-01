@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -13,10 +14,10 @@ import Typography from "@mui/material/Typography";
 
 import { AppNav } from "~/app/_components/app-nav";
 import { JoinRequestsPanel } from "./join-requests-panel";
+import { NpcLibraryPanel } from "./npc-library-panel";
 
 import { useRoomEvents } from "~/lib/use-room-events";
 import { api } from "~/trpc/react";
-import { SceneViewer } from "./scene-viewer";
 
 async function readImageDimensions(file: File) {
   const url = URL.createObjectURL(file);
@@ -36,10 +37,22 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const utils = api.useUtils();
   const { data: campaign } = api.campaign.get.useQuery({ campaignId });
   const { data: scenes } = api.scene.listForCampaign.useQuery({ campaignId });
+  const { data: myCharacters } = api.character.listMine.useQuery();
+  const { data: rosterCharacters } = api.campaign.listMemberCharacters.useQuery(
+    { campaignId },
+    { enabled: !!campaign?.isGm },
+  );
+
+  const addOwnCharacter = api.campaign.addOwnCharacter.useMutation({
+    onSuccess: () => utils.campaign.listMemberCharacters.invalidate({ campaignId }),
+  });
 
   const [sceneName, setSceneName] = useState("");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const createScene = api.scene.create.useMutation({
     onSuccess: () => utils.scene.listForCampaign.invalidate({ campaignId }),
@@ -47,6 +60,29 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const setActive = api.scene.setActive.useMutation({
     onSuccess: () => utils.campaign.get.invalidate({ campaignId }),
   });
+  const setCoverImage = api.campaign.setCoverImage.useMutation({
+    onSuccess: () => utils.campaign.get.invalidate({ campaignId }),
+  });
+
+  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingCover(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = (await fetch("/api/upload/campaign-cover", {
+        method: "POST",
+        body: fd,
+      }).then((r) => r.json())) as { url?: string; error?: string };
+      if (!res.url) throw new Error(res.error ?? "Upload failed");
+      await setCoverImage.mutateAsync({ campaignId, coverImageUrl: res.url });
+    } finally {
+      setUploadingCover(false);
+      if (coverInputRef.current) coverInputRef.current.value = "";
+    }
+  }
 
   useRoomEvents(`campaign:${campaignId}`, "campaign:changed", () => {
     void utils.campaign.get.invalidate({ campaignId });
@@ -93,10 +129,47 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     <Box>
       <AppNav />
       <Box sx={{ maxWidth: 1000, mx: "auto", px: 3, py: 6 }}>
+      {campaign.coverImageUrl && (
+        <Box
+          sx={{
+            height: 180,
+            borderRadius: "8px",
+            mb: 2,
+            backgroundImage: `url(${campaign.coverImageUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        />
+      )}
+
       <Typography variant="h3" sx={{ mb: 1 }}>
         {campaign.name}
       </Typography>
-      {campaign.isGm && <Chip label="You are the GM" size="small" sx={{ mb: 3 }} />}
+      {campaign.isGm && <Chip label="You are the GM" size="small" sx={{ mb: 1 }} />}
+
+      {campaign.isGm && (
+        <Box sx={{ mb: 3 }}>
+          <input
+            ref={coverInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={handleCoverChange}
+            style={{ display: "none" }}
+          />
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={uploadingCover}
+            onClick={() => coverInputRef.current?.click()}
+          >
+            {uploadingCover
+              ? "Uploading…"
+              : campaign.coverImageUrl
+                ? "Change cover image"
+                : "Set cover image"}
+          </Button>
+        </Box>
+      )}
 
       {campaign.isGm && <JoinRequestsPanel campaignId={campaignId} />}
 
@@ -149,12 +222,60 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         </Box>
       )}
 
+      {campaign.isGm && myCharacters && myCharacters.length > 0 && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>
+            Your characters in this campaign
+          </Typography>
+          <List>
+            {myCharacters.map((character) => {
+              const inCampaign = rosterCharacters?.some((c) => c.id === character.id);
+              return (
+                <ListItem
+                  key={character.id}
+                  divider
+                  secondaryAction={
+                    inCampaign ? (
+                      <Chip label="In campaign" size="small" />
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={addOwnCharacter.isPending}
+                        onClick={() =>
+                          addOwnCharacter.mutate({ campaignId, characterId: character.id })
+                        }
+                      >
+                        Add to campaign
+                      </Button>
+                    )
+                  }
+                >
+                  <ListItemText primary={character.name} />
+                </ListItem>
+              );
+            })}
+          </List>
+        </Box>
+      )}
+
+      {campaign.isGm && (
+        <Box sx={{ mb: 4, maxWidth: 420 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>
+            NPC library
+          </Typography>
+          <Typography sx={{ fontSize: 13, color: "text.secondary", mb: 2 }}>
+            Build your roster ahead of a session — search the SRD or add custom NPCs here.
+            They&apos;ll be ready to drag onto the map next time you open the stage.
+          </Typography>
+          <NpcLibraryPanel campaignId={campaignId} />
+        </Box>
+      )}
+
       {campaign.activeSceneId ? (
-        <SceneViewer
-          campaignId={campaignId}
-          sceneId={campaign.activeSceneId}
-          isGm={campaign.isGm}
-        />
+        <Button component={Link} href={`/campaigns/${campaignId}/play`} variant="contained">
+          Open stage →
+        </Button>
       ) : (
         <Typography color="text.secondary">No active scene yet.</Typography>
       )}

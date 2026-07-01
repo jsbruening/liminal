@@ -8,7 +8,7 @@ export const characterRouter = createTRPCRouter({
     .input(
       z.object({
         name: z.string().min(1).max(100),
-        tokenUrl: z.string().url().optional(),
+        tokenUrl: z.string().optional(),
         notes: z.string().max(5000).optional(),
       }),
     )
@@ -30,7 +30,7 @@ export const characterRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         name: z.string().min(1).max(100).optional(),
-        tokenUrl: z.string().url().optional(),
+        tokenUrl: z.string().optional(),
         notes: z.string().max(5000).optional(),
       }),
     )

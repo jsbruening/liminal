@@ -5,12 +5,13 @@ import { useEffect } from "react";
 import { getSocket } from "~/lib/socket";
 
 // Joins `room` for the lifetime of the component and calls `onEvent` every
-// time the server emits `event` to it (see src/server/socket.ts — events
-// carry no payload, they're just a "go refetch" signal).
-export function useRoomEvents(
+// time the server emits `event` to it. Most events carry no payload (see
+// src/server/socket.ts — they're just a "go refetch" signal); a few
+// deliberate exceptions (e.g. pings) do, hence the optional generic.
+export function useRoomEvents<T = void>(
   room: string | undefined,
   event: string,
-  onEvent: () => void,
+  onEvent: (payload: T) => void,
 ) {
   useEffect(() => {
     if (!room) return;

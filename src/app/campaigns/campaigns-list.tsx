@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -51,15 +51,50 @@ export function CampaignsList() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const create = api.campaign.create.useMutation({
     onSuccess: async (campaign) => {
-      setModalOpen(false);
-      setName("");
+      closeModal();
       await utils.campaign.listMine.invalidate();
       router.push(`/campaigns/${campaign.id}`);
     },
   });
+
+  function closeModal() {
+    setModalOpen(false);
+    setName("");
+    setCoverPreview(null);
+    if (coverInputRef.current) coverInputRef.current.value = "";
+  }
+
+  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    setCoverPreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  async function handleCreate() {
+    const file = coverInputRef.current?.files?.[0];
+    setUploading(true);
+    try {
+      let coverImageUrl: string | undefined;
+      if (file) {
+        const fd = new FormData();
+        fd.set("file", file);
+        const res = (await fetch("/api/upload/campaign-cover", {
+          method: "POST",
+          body: fd,
+        }).then((r) => r.json())) as { url?: string; error?: string };
+        if (!res.url) throw new Error(res.error ?? "Upload failed");
+        coverImageUrl = res.url;
+      }
+      create.mutate({ name: name.trim(), coverImageUrl });
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const all = [
     ...(mine?.gmed.map((c) => ({ ...c, isGm: true })) ?? []),
@@ -155,7 +190,7 @@ export function CampaignsList() {
 
       <Dialog
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         slotProps={{
           paper: {
             sx: { bgcolor: "background.paper", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", p: 4, width: "100%", maxWidth: 440 },
@@ -181,22 +216,57 @@ export function CampaignsList() {
             size="small"
           />
         </Stack>
+        <Stack spacing={0.75} sx={{ mb: 3 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.48)" }}>
+            Cover image (optional)
+          </Typography>
+          <Box
+            onClick={() => coverInputRef.current?.click()}
+            sx={{
+              height: 110,
+              borderRadius: "8px",
+              border: "1px dashed rgba(255,255,255,0.16)",
+              bgcolor: "#111310",
+              backgroundImage: coverPreview ? `url(${coverPreview})` : undefined,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              "&:hover": { borderColor: "rgba(194,163,107,0.4)" },
+            }}
+          >
+            {!coverPreview && (
+              <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+                Click to upload an image
+              </Typography>
+            )}
+          </Box>
+          <input
+            ref={coverInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={handleCoverChange}
+            style={{ display: "none" }}
+          />
+        </Stack>
         <Stack direction="row" spacing={1.25}>
           <Button
             fullWidth
             variant="outlined"
-            onClick={() => setModalOpen(false)}
+            onClick={closeModal}
           >
             Cancel
           </Button>
           <Button
             fullWidth
             variant="contained"
-            disabled={!name.trim() || create.isPending}
-            onClick={() => create.mutate({ name: name.trim() })}
+            disabled={!name.trim() || create.isPending || uploading}
+            onClick={handleCreate}
             sx={{ flexGrow: 2 }}
           >
-            Create campaign
+            {uploading ? "Uploading…" : "Create campaign"}
           </Button>
         </Stack>
       </Dialog>
@@ -235,18 +305,25 @@ function CampaignCard({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          backgroundImage: campaign.coverImageUrl
+            ? `url(${campaign.coverImageUrl})`
+            : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
         }}
       >
-        <Typography
-          sx={{
-            fontSize: 11,
-            color: "rgba(255,255,255,0.15)",
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-          }}
-        >
-          Campaign art
-        </Typography>
+        {!campaign.coverImageUrl && (
+          <Typography
+            sx={{
+              fontSize: 11,
+              color: "rgba(255,255,255,0.15)",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+            }}
+          >
+            Campaign art
+          </Typography>
+        )}
         <Box
           sx={{
             position: "absolute",
@@ -319,7 +396,7 @@ function CampaignCard({
             fullWidth
             onClick={(e) => {
               e.stopPropagation();
-              router.push(`/campaigns/${campaign.id}`);
+              router.push(`/campaigns/${campaign.id}/play`);
             }}
             sx={{
               mt: 1.75,

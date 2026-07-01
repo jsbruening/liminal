@@ -69,6 +69,23 @@ export const sceneRouter = createTRPCRouter({
       return updated;
     }),
 
+  updateGridSize: protectedProcedure
+    .input(z.object({ sceneId: z.string(), gridSize: z.number().int().min(10).max(400) }))
+    .mutation(async ({ ctx, input }) => {
+      const scene = await ctx.db.scene.findUnique({
+        where: { id: input.sceneId },
+      });
+      if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireGm(ctx.db, scene.campaignId, ctx.session.user.id);
+
+      const updated = await ctx.db.scene.update({
+        where: { id: input.sceneId },
+        data: { gridSize: input.gridSize },
+      });
+      emitToRoom(rooms.scene(input.sceneId), "scene:changed");
+      return updated;
+    }),
+
   toggleFogLifted: protectedProcedure
     .input(z.object({ sceneId: z.string(), fogLifted: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -84,6 +101,28 @@ export const sceneRouter = createTRPCRouter({
       });
       emitToRoom(rooms.scene(input.sceneId), "scene:changed");
       return updated;
+    }),
+
+  // Any campaign member can ping — a transient, non-persisted "look here" /
+  // "targeting this" marker broadcast live to everyone on the scene. Not
+  // stored anywhere; see emitToRoom's payload note for why this is fine to
+  // push directly rather than going through the usual refetch pattern.
+  ping: protectedProcedure
+    .input(z.object({ sceneId: z.string(), x: z.number(), y: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const scene = await ctx.db.scene.findUnique({
+        where: { id: input.sceneId },
+      });
+      if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireMember(ctx.db, scene.campaignId, ctx.session.user.id);
+
+      emitToRoom(rooms.scene(input.sceneId), "scene:ping", {
+        x: input.x,
+        y: input.y,
+        userId: ctx.session.user.id,
+        name: ctx.session.user.name ?? "Someone",
+      });
+      return { sent: true };
     }),
 
   delete: protectedProcedure

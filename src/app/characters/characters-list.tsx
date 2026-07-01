@@ -4,12 +4,14 @@ import { useState } from "react";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemAvatar from "@mui/material/ListItemAvatar";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 import { AppNav } from "~/app/_components/app-nav";
@@ -26,6 +28,33 @@ export function CharactersList() {
       await utils.character.listMine.invalidate();
     },
   });
+
+  const updateCharacter = api.character.update.useMutation({
+    onSuccess: () => utils.character.listMine.invalidate(),
+  });
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  async function handleAvatarChange(
+    characterId: string,
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingId(characterId);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = (await fetch("/api/upload/character-avatar", {
+        method: "POST",
+        body: fd,
+      }).then((r) => r.json())) as { url?: string; error?: string };
+      if (!res.url) throw new Error(res.error ?? "Upload failed");
+      await updateCharacter.mutateAsync({ id: characterId, tokenUrl: res.url });
+    } finally {
+      setUploadingId(null);
+      e.target.value = "";
+    }
+  }
 
   return (
     <Box>
@@ -67,9 +96,39 @@ export function CharactersList() {
         {characters?.map((character) => (
           <ListItem key={character.id} divider>
             <ListItemAvatar>
-              <Avatar src={character.tokenUrl ?? undefined}>
-                {character.name.charAt(0)}
-              </Avatar>
+              <Tooltip title="Click to change avatar">
+                <Box
+                  component="label"
+                  htmlFor={`avatar-${character.id}`}
+                  sx={{ position: "relative", display: "inline-flex", cursor: "pointer" }}
+                >
+                  <Avatar src={character.tokenUrl ?? undefined}>
+                    {character.name.charAt(0)}
+                  </Avatar>
+                  {uploadingId === character.id && (
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        inset: 0,
+                        borderRadius: "50%",
+                        bgcolor: "rgba(0,0,0,0.5)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <CircularProgress size={18} sx={{ color: "white" }} />
+                    </Box>
+                  )}
+                </Box>
+              </Tooltip>
+              <input
+                id={`avatar-${character.id}`}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e) => handleAvatarChange(character.id, e)}
+                style={{ display: "none" }}
+              />
             </ListItemAvatar>
             <ListItemText
               primary={character.name}

@@ -56,50 +56,47 @@ export default function SignUpPage() {
               }}
               sx={{ bgcolor: "background.paper", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "8px", p: "28px 28px 24px" }}
             >
-              <Stack spacing={0.75} sx={{ mb: 2 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.5)" }}>
-                  Full name
-                </Typography>
-                <TextField
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
-                  required
-                  fullWidth
-                  size="small"
-                />
-              </Stack>
+              <TextField
+                name="name"
+                id="name"
+                autoComplete="name"
+                label="Full name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                fullWidth
+                size="small"
+                sx={{ mb: 2 }}
+              />
 
-              <Stack spacing={0.75} sx={{ mb: 2 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.5)" }}>
-                  Email
-                </Typography>
-                <TextField
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  required
-                  fullWidth
-                  size="small"
-                />
-              </Stack>
+              <TextField
+                type="email"
+                name="email"
+                id="email"
+                autoComplete="email"
+                label="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                fullWidth
+                size="small"
+                sx={{ mb: 2 }}
+              />
 
-              <Stack spacing={0.75} sx={{ mb: 2 }}>
-                <Typography sx={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.5)" }}>
-                  Password
-                </Typography>
-                <TextField
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  fullWidth
-                  size="small"
-                  helperText="At least 8 characters"
-                />
-              </Stack>
+              <TextField
+                type="password"
+                name="password"
+                id="password"
+                autoComplete="new-password"
+                label="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                fullWidth
+                size="small"
+                helperText="At least 8 characters"
+                sx={{ mb: 2 }}
+              />
 
               <Box
                 sx={{

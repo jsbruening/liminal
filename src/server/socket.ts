@@ -10,8 +10,12 @@ declare global {
 // re-fetch through their own authenticated tRPC query rather than receiving
 // a server-pushed payload that could leak hidden-token or fog info to a
 // viewer who shouldn't see it.
-export function emitToRoom(room: string, event: string) {
-  globalThis.__liminalIO?.to(room).emit(event);
+//
+// `payload` is an intentional, narrow exception to that rule: only use it for
+// events with no permission-sensitive content (e.g. a ping's coordinates),
+// where waiting on a refetch round-trip would defeat the point.
+export function emitToRoom(room: string, event: string, payload?: unknown) {
+  globalThis.__liminalIO?.to(room).emit(event, payload);
 }
 
 export const rooms = {
