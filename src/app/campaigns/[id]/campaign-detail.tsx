@@ -5,12 +5,15 @@ import Link from "next/link";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
 
 import { AppNav } from "~/app/_components/app-nav";
 import { JoinRequestsPanel } from "./join-requests-panel";
@@ -53,11 +56,28 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const [fileSelected, setFileSelected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+  const [editingSceneName, setEditingSceneName] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
   const [uploadingCover, setUploadingCover] = useState(false);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const createScene = api.scene.create.useMutation({
     onSuccess: () => utils.scene.listForCampaign.invalidate({ campaignId }),
+  });
+  const updateScene = api.scene.update.useMutation({
+    onSuccess: () => {
+      void utils.scene.listForCampaign.invalidate({ campaignId });
+      setEditingSceneId(null);
+    },
+  });
+  const deleteScene = api.scene.delete.useMutation({
+    onSuccess: () => {
+      void utils.scene.listForCampaign.invalidate({ campaignId });
+      void utils.campaign.get.invalidate({ campaignId });
+      setDeleteConfirmId(null);
+    },
   });
   const setActive = api.scene.setActive.useMutation({
     onSuccess: () => utils.campaign.get.invalidate({ campaignId }),
@@ -189,22 +209,92 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               <ListItem
                 key={scene.id}
                 divider
+                sx={{ gap: 1 }}
                 secondaryAction={
-                  <Button
-                    size="small"
-                    variant={campaign.activeSceneId === scene.id ? "contained" : "outlined"}
-                    onClick={() =>
-                      setActive.mutate({
-                        campaignId,
-                        sceneId: campaign.activeSceneId === scene.id ? null : scene.id,
-                      })
-                    }
-                  >
-                    {campaign.activeSceneId === scene.id ? "Active" : "Set active"}
-                  </Button>
+                  <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                    {deleteConfirmId === scene.id ? (
+                      <>
+                        <Typography sx={{ fontSize: 12, color: "error.main" }}>Delete?</Typography>
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() => deleteScene.mutate({ sceneId: scene.id })}
+                          disabled={deleteScene.isPending}
+                        >
+                          Yes
+                        </Button>
+                        <Button size="small" onClick={() => setDeleteConfirmId(null)}>
+                          No
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setEditingSceneId(scene.id);
+                            setEditingSceneName(scene.name);
+                          }}
+                        >
+                          <EditIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => setDeleteConfirmId(scene.id)}
+                          sx={{ color: "rgba(255,255,255,0.4)", "&:hover": { color: "error.main" } }}
+                        >
+                          <DeleteIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                        <Button
+                          size="small"
+                          variant={campaign.activeSceneId === scene.id ? "contained" : "outlined"}
+                          onClick={() =>
+                            setActive.mutate({
+                              campaignId,
+                              sceneId: campaign.activeSceneId === scene.id ? null : scene.id,
+                            })
+                          }
+                        >
+                          {campaign.activeSceneId === scene.id ? "Active" : "Set active"}
+                        </Button>
+                      </>
+                    )}
+                  </Stack>
                 }
               >
-                <ListItemText primary={scene.name} />
+                {editingSceneId === scene.id ? (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", pr: 22 }}>
+                    <TextField
+                      size="small"
+                      value={editingSceneName}
+                      onChange={(e) => setEditingSceneName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && editingSceneName.trim()) {
+                          updateScene.mutate({ sceneId: scene.id, name: editingSceneName.trim() });
+                        }
+                        if (e.key === "Escape") setEditingSceneId(null);
+                      }}
+                      autoFocus
+                      sx={{ maxWidth: 220 }}
+                    />
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={() =>
+                        editingSceneName.trim() &&
+                        updateScene.mutate({ sceneId: scene.id, name: editingSceneName.trim() })
+                      }
+                      disabled={updateScene.isPending || !editingSceneName.trim()}
+                    >
+                      Save
+                    </Button>
+                    <Button size="small" onClick={() => setEditingSceneId(null)}>
+                      Cancel
+                    </Button>
+                  </Stack>
+                ) : (
+                  <ListItemText primary={scene.name} />
+                )}
               </ListItem>
             ))}
           </List>

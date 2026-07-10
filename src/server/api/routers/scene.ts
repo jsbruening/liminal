@@ -69,6 +69,20 @@ export const sceneRouter = createTRPCRouter({
       return updated;
     }),
 
+  update: protectedProcedure
+    .input(z.object({ sceneId: z.string(), name: z.string().min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const scene = await ctx.db.scene.findUnique({ where: { id: input.sceneId } });
+      if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireGm(ctx.db, scene.campaignId, ctx.session.user.id);
+      const updated = await ctx.db.scene.update({
+        where: { id: input.sceneId },
+        data: { name: input.name },
+      });
+      emitToRoom(rooms.campaign(scene.campaignId), "campaign:changed");
+      return updated;
+    }),
+
   updateGridSize: protectedProcedure
     .input(z.object({ sceneId: z.string(), gridSize: z.number().int().min(10).max(400) }))
     .mutation(async ({ ctx, input }) => {
