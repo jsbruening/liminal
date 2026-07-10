@@ -5,9 +5,6 @@ import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-// Hand-picked palette (not pure-random RGB) so colors stay legible and
-// pleasant together. A token's color key is its character/NPC-template id
-// (stable across scenes) or its label, so e.g. every "Goblin" matches.
 const TOKEN_PALETTE = [
   "#c2a36b", // brass
   "#6f8fc2", // slate blue
@@ -49,6 +46,106 @@ export interface StatBlock {
   reactions: { name: string; desc: string }[];
 }
 
+function mod(score: number) {
+  const m = Math.floor((score - 10) / 2);
+  return m >= 0 ? `+${m}` : String(m);
+}
+
+export function StatBlockContent({ statBlock }: { statBlock: StatBlock }) {
+  return (
+    <Box>
+      <Typography sx={{ fontSize: 13, color: "rgba(255,255,255,0.45)", mb: 2, fontStyle: "italic" }}>
+        {statBlock.size} {statBlock.type}, {statBlock.alignment}
+      </Typography>
+
+      <Stack direction="row" spacing={3} sx={{ mb: 2 }}>
+        <Box>
+          <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            AC
+          </Typography>
+          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>{statBlock.armorClass ?? "—"}</Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            HP
+          </Typography>
+          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+            {statBlock.hitPoints ?? "—"}
+            {statBlock.hitDice ? ` (${statBlock.hitDice})` : ""}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Speed
+          </Typography>
+          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+            {Object.entries(statBlock.speed)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(", ") || "—"}
+          </Typography>
+        </Box>
+      </Stack>
+
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(6, 1fr)",
+          gap: 0.5,
+          mb: 2,
+          p: 1.5,
+          borderRadius: "6px",
+          bgcolor: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.07)",
+        }}
+      >
+        {(["str", "dex", "con", "int", "wis", "cha"] as const).map((k) => (
+          <Box key={k} sx={{ textAlign: "center" }}>
+            <Typography sx={{ fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {k}
+            </Typography>
+            <Typography sx={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>
+              {statBlock.abilities[k]}
+            </Typography>
+            <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>
+              {mod(statBlock.abilities[k])}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+
+      {statBlock.challengeRating != null && (
+        <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.45)", mb: 2 }}>
+          CR {statBlock.challengeRating} · {statBlock.xp ?? "?"} XP
+          {statBlock.languages ? ` · ${statBlock.languages}` : ""}
+        </Typography>
+      )}
+
+      {[
+        { label: "Special Abilities", items: statBlock.specialAbilities },
+        { label: "Actions", items: statBlock.actions },
+        { label: "Legendary Actions", items: statBlock.legendaryActions },
+        { label: "Reactions", items: statBlock.reactions },
+      ]
+        .filter((s) => s.items.length > 0)
+        .map((section) => (
+          <Box key={section.label} sx={{ mb: 2 }}>
+            <Typography
+              sx={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "primary.main", mb: 1 }}
+            >
+              {section.label}
+            </Typography>
+            {section.items.map((a) => (
+              <Typography key={a.name} sx={{ fontSize: 12.5, mb: 0.75, lineHeight: 1.6 }}>
+                <Box component="span" sx={{ fontWeight: 700 }}>{a.name}. </Box>
+                {a.desc}
+              </Typography>
+            ))}
+          </Box>
+        ))}
+    </Box>
+  );
+}
+
 export function StatBlockDrawer({
   statBlock,
   onClose,
@@ -78,119 +175,15 @@ export function StatBlockDrawer({
     >
       {statBlock && (
         <Box sx={{ p: 3 }}>
-          <Stack direction="row" sx={{ alignItems: "flex-start", justifyContent: "space-between" }}>
-            <Typography variant="h2" sx={{ fontSize: 22, mb: 0.25 }}>
+          <Stack direction="row" sx={{ alignItems: "flex-start", justifyContent: "space-between", mb: 0.25 }}>
+            <Typography variant="h2" sx={{ fontSize: 22 }}>
               {statBlock.name}
             </Typography>
             <IconButton size="small" onClick={onClose} sx={{ mt: -0.5, mr: -1 }}>
               <CloseIcon fontSize="small" />
             </IconButton>
           </Stack>
-          <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.45)", mb: 2, fontStyle: "italic" }}>
-            {statBlock.size} {statBlock.type}, {statBlock.alignment}
-          </Typography>
-
-          <Stack direction="row" spacing={3} sx={{ mb: 2 }}>
-            <Box>
-              <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>
-                AC
-              </Typography>
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                {statBlock.armorClass ?? "—"}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>
-                HP
-              </Typography>
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                {statBlock.hitPoints ?? "—"}
-                {statBlock.hitDice ? ` (${statBlock.hitDice})` : ""}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>
-                Speed
-              </Typography>
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                {Object.entries(statBlock.speed)
-                  .map(([k, v]) => `${k} ${v}`)
-                  .join(", ") || "—"}
-              </Typography>
-            </Box>
-          </Stack>
-
-          <Stack direction="row" spacing={2.5} sx={{ mb: 2 }}>
-            {(["str", "dex", "con", "int", "wis", "cha"] as const).map((k) => (
-              <Box key={k} sx={{ textAlign: "center" }}>
-                <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>
-                  {k}
-                </Typography>
-                <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                  {statBlock.abilities[k]}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-
-          {statBlock.challengeRating != null && (
-            <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.5)", mb: 2 }}>
-              CR {statBlock.challengeRating} ({statBlock.xp ?? "?"} XP)
-              {statBlock.languages ? ` · ${statBlock.languages}` : ""}
-            </Typography>
-          )}
-
-          {statBlock.specialAbilities.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 0.5, color: "primary.main" }}>
-                Special Abilities
-              </Typography>
-              {statBlock.specialAbilities.map((a) => (
-                <Typography key={a.name} sx={{ fontSize: 12.5, mb: 0.75, lineHeight: 1.5 }}>
-                  <strong>{a.name}.</strong> {a.desc}
-                </Typography>
-              ))}
-            </Box>
-          )}
-
-          {statBlock.actions.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 0.5, color: "primary.main" }}>
-                Actions
-              </Typography>
-              {statBlock.actions.map((a) => (
-                <Typography key={a.name} sx={{ fontSize: 12.5, mb: 0.75, lineHeight: 1.5 }}>
-                  <strong>{a.name}.</strong> {a.desc}
-                </Typography>
-              ))}
-            </Box>
-          )}
-
-          {statBlock.legendaryActions.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 0.5, color: "primary.main" }}>
-                Legendary Actions
-              </Typography>
-              {statBlock.legendaryActions.map((a) => (
-                <Typography key={a.name} sx={{ fontSize: 12.5, mb: 0.75, lineHeight: 1.5 }}>
-                  <strong>{a.name}.</strong> {a.desc}
-                </Typography>
-              ))}
-            </Box>
-          )}
-
-          {statBlock.reactions.length > 0 && (
-            <Box>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, mb: 0.5, color: "primary.main" }}>
-                Reactions
-              </Typography>
-              {statBlock.reactions.map((a) => (
-                <Typography key={a.name} sx={{ fontSize: 12.5, mb: 0.75, lineHeight: 1.5 }}>
-                  <strong>{a.name}.</strong> {a.desc}
-                </Typography>
-              ))}
-            </Box>
-          )}
+          <StatBlockContent statBlock={statBlock} />
         </Box>
       )}
     </Drawer>
