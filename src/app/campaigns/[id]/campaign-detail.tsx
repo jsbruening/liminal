@@ -49,6 +49,8 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
 
   const [sceneName, setSceneName] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [fileSelected, setFileSelected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -94,6 +96,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     if (!file || !sceneName.trim()) return;
 
     setUploading(true);
+    setUploadError(null);
     try {
       const [{ width, height }, uploadRes] = await Promise.all([
         readImageDimensions(file),
@@ -117,7 +120,10 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         heightPx: height,
       });
       setSceneName("");
+      setFileSelected(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Scene creation failed");
     } finally {
       setUploading(false);
     }
@@ -203,21 +209,40 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
             ))}
           </List>
 
-          <Stack direction="row" spacing={2} sx={{ mt: 2, alignItems: "center" }}>
-            <TextField
-              size="small"
-              label="New scene name"
-              value={sceneName}
-              onChange={(e) => setSceneName(e.target.value)}
-            />
-            <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" />
-            <Button
-              variant="contained"
-              onClick={handleCreateScene}
-              disabled={uploading || !sceneName.trim()}
-            >
-              {uploading ? "Uploading…" : "Create scene"}
-            </Button>
+          <Stack spacing={1} sx={{ mt: 2 }}>
+            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+              <TextField
+                size="small"
+                label="New scene name"
+                value={sceneName}
+                onChange={(e) => setSceneName(e.target.value)}
+              />
+              <Button
+                component="label"
+                variant="outlined"
+                size="small"
+                sx={{ whiteSpace: "nowrap" }}
+              >
+                {fileSelected ? "Map selected ✓" : "Choose map image"}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  style={{ display: "none" }}
+                  onChange={(e) => setFileSelected(!!e.target.files?.[0])}
+                />
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleCreateScene}
+                disabled={uploading || !sceneName.trim() || !fileSelected}
+              >
+                {uploading ? "Uploading…" : "Create scene"}
+              </Button>
+            </Stack>
+            {uploadError && (
+              <Typography sx={{ fontSize: 12, color: "error.main" }}>{uploadError}</Typography>
+            )}
           </Stack>
         </Box>
       )}
