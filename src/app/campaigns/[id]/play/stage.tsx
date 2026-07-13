@@ -687,6 +687,21 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
     if (!shape) return null;
     const fontSize = Math.max(10, 13 / zoom);
+    const smallFontSize = Math.max(8, 11 / zoom);
+
+    // Measurement string derived from the shape data
+    let measureText = "";
+    if (type === "circle") {
+      measureText = `${(data.radiusFt as number) ?? 0} ft radius`;
+    } else if (type === "cone") {
+      measureText = `${(data.lengthFt as number) ?? 0} ft cone`;
+    } else if (type === "line") {
+      measureText = `${(data.lengthFt as number) ?? 0} ft line`;
+    } else if (type === "square") {
+      measureText = `${(data.sideFt as number) ?? 0} ft square`;
+    }
+
+    const labelOffset = label ? fontSize * 0.85 : 0;
 
     return (
       <g
@@ -695,10 +710,22 @@ export function Stage({ campaignId }: { campaignId: string }) {
         style={{ cursor: onContextMenu ? "context-menu" : "default" }}
       >
         {shape}
+        {/* Drop shadow rect behind text so it's readable on any map */}
+        {(label || measureText) && (
+          <rect
+            x={labelX - 52 / zoom}
+            y={labelY - (label ? fontSize + smallFontSize * 0.5 + 4 / zoom : smallFontSize * 0.5 + 2 / zoom)}
+            width={104 / zoom}
+            height={(label ? fontSize + smallFontSize + 6 / zoom : smallFontSize + 4 / zoom)}
+            rx={3 / zoom}
+            fill="rgba(0,0,0,0.55)"
+            style={{ pointerEvents: "none" }}
+          />
+        )}
         {label && (
           <text
             x={labelX}
-            y={labelY}
+            y={labelY - labelOffset}
             textAnchor="middle"
             dominantBaseline="middle"
             fill={strokeColor}
@@ -707,6 +734,21 @@ export function Stage({ campaignId }: { campaignId: string }) {
             style={{ pointerEvents: "none", userSelect: "none" }}
           >
             {label}
+          </text>
+        )}
+        {measureText && (
+          <text
+            x={labelX}
+            y={labelY + labelOffset}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill={strokeColor}
+            fontSize={smallFontSize}
+            fontWeight="500"
+            opacity="0.85"
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {measureText}
           </text>
         )}
       </g>
