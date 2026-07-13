@@ -489,14 +489,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
     setContextMenu({ tokenId: token.id, mouseX: e.clientX, mouseY: e.clientY });
   }
 
-  function handleOverlayContextMenu(e: React.MouseEvent, overlay: OverlayRow) {
-    e.preventDefault();
-    e.stopPropagation();
-    const isOwn = overlay.userId === session?.user?.id;
-    if (!isOwn && !campaign?.isGm) return;
-    setOverlayContextMenu({ overlayId: overlay.id, mouseX: e.clientX, mouseY: e.clientY });
-  }
-
   function handleDeleteOverlay() {
     if (!overlayContextMenu) return;
     deleteOverlay.mutate({ overlayId: overlayContextMenu.overlayId });
@@ -589,6 +581,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
     label?: string | null,
     key?: string,
     isPreview = false,
+    onContextMenu?: (e: React.MouseEvent<SVGGElement>) => void,
   ) {
     const pxPerFt = gridSize / 5;
     const opacity = isPreview ? 0.5 : 0.3;
@@ -696,7 +689,11 @@ export function Stage({ campaignId }: { campaignId: string }) {
     const fontSize = Math.max(10, 13 / zoom);
 
     return (
-      <g key={key}>
+      <g
+        key={key}
+        onContextMenu={onContextMenu}
+        style={{ cursor: onContextMenu ? "context-menu" : "default" }}
+      >
         {shape}
         {label && (
           <text
@@ -1113,15 +1110,25 @@ export function Stage({ campaignId }: { campaignId: string }) {
               height={scene.heightPx}
               style={{ position: "absolute", top: 0, left: 0, zIndex: 3, overflow: "visible" }}
             >
-              {overlays?.map((ov) =>
-                renderOverlaySvgShape(
+              {overlays?.map((ov) => {
+                const isOwn = ov.userId === session?.user?.id;
+                const canDelete = isOwn || campaign.isGm;
+                return renderOverlaySvgShape(
                   ov.type,
                   ov.data as Record<string, unknown>,
                   ov.color,
                   ov.label,
                   ov.id,
-                ),
-              )}
+                  false,
+                  canDelete
+                    ? (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setOverlayContextMenu({ overlayId: ov.id, mouseX: e.clientX, mouseY: e.clientY });
+                      }
+                    : undefined,
+                );
+              })}
               {drawPreview &&
                 renderOverlaySvgShape(
                   drawPreview.tool,
@@ -1132,35 +1139,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
                   true,
                 )}
             </svg>
-
-            {/* Invisible hit targets for overlay right-click delete */}
-            {overlays?.map((ov) => {
-              const isOwn = ov.userId === session?.user?.id;
-              if (!isOwn && !campaign.isGm) return null;
-              const d = ov.data as Record<string, unknown>;
-              const pxPerFt = gridSize / 5;
-              let cx = 0; let cy = 0; let r = 20;
-              if (ov.type === "circle") { cx = d.cx as number; cy = d.cy as number; r = (d.radiusFt as number) * pxPerFt; }
-              else if (ov.type === "cone") { const len = (d.lengthFt as number) * pxPerFt; const a = d.angle as number; cx = (d.tx as number) + Math.cos(a) * len / 2; cy = (d.ty as number) + Math.sin(a) * len / 2; r = 20; }
-              else if (ov.type === "line") { cx = ((d.x1 as number) + (d.x2 as number)) / 2; cy = ((d.y1 as number) + (d.y2 as number)) / 2; r = 20; }
-              else if (ov.type === "square") { cx = d.cx as number; cy = d.cy as number; r = 20; }
-              return (
-                <Box
-                  key={`hit-${ov.id}`}
-                  onContextMenu={(e) => handleOverlayContextMenu(e, ov)}
-                  sx={{
-                    position: "absolute",
-                    left: cx - r,
-                    top: cy - r,
-                    width: r * 2,
-                    height: r * 2,
-                    borderRadius: "50%",
-                    cursor: "context-menu",
-                    zIndex: 4,
-                  }}
-                />
-              );
-            })}
 
             {measureLine && (
               <>
