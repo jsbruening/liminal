@@ -343,6 +343,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
   }
 
   function handleBackgroundPointerDown(e: React.PointerEvent) {
+    if (e.button !== 0) return; // ignore right-click / middle-click
     if (isOverlayTool(activeTool)) {
       const { x, y } = screenToWorld(e.clientX, e.clientY);
       const ds: DrawState = { tool: activeTool, startX: x, startY: y, curX: x, curY: y };
