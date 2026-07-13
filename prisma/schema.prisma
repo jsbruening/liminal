@@ -42,6 +42,7 @@ model User {
     tokenControlGrants TokenController[]
     authoredNotes      CampaignNote[]
     sceneFogReveals    SceneFogReveal[]
+    overlays           Overlay[]
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
@@ -256,6 +257,7 @@ model Scene {
 
     fogReveals SceneFogReveal[] // per-character revealed-cell state
     tokens     Token[]
+    overlays   Overlay[]
 
     activeForCampaign Campaign? @relation("ActiveScene")
 
@@ -363,4 +365,22 @@ model TokenController {
     grantedAt DateTime @default(now())
 
     @@unique([tokenId, controlledById])
+}
+
+model Overlay {
+    id      String @id @default(cuid())
+    sceneId String
+    scene   Scene  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+    userId String
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    type  String  // "circle" | "cone" | "line" | "square"
+    color String
+    label String?
+    data  Json    // shape coords in world px + sizes in ft
+
+    createdAt DateTime @default(now())
+
+    @@index([sceneId])
 }

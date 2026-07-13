@@ -3,6 +3,7 @@ import { campaignRouter } from "~/server/api/routers/campaign";
 import { characterRouter } from "~/server/api/routers/character";
 import { healthRouter } from "~/server/api/routers/health";
 import { npcTemplateRouter } from "~/server/api/routers/npcTemplate";
+import { overlayRouter } from "~/server/api/routers/overlay";
 import { sceneRouter } from "~/server/api/routers/scene";
 import { tokenRouter } from "~/server/api/routers/token";
 import { userRouter } from "~/server/api/routers/user";
@@ -22,6 +23,7 @@ export const appRouter = createTRPCRouter({
   scene: sceneRouter,
   token: tokenRouter,
   npcTemplate: npcTemplateRouter,
+  overlay: overlayRouter,
 });
 
 // export type definition of AppRouter

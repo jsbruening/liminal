@@ -37,6 +37,9 @@ export default async function PlayPage({
       api.npcTemplate.list.prefetch({ campaignId: id }),
     );
   }
+  if (campaign.activeSceneId) {
+    prefetches.push(api.overlay.listForScene.prefetch({ sceneId: campaign.activeSceneId }));
+  }
   await Promise.all(prefetches);
 
   return (

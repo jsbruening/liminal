@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import SignalCellularAltIcon from "@mui/icons-material/SignalCellularAlt";
 import StraightenIcon from "@mui/icons-material/Straighten";
+import SquareOutlinedIcon from "@mui/icons-material/SquareOutlined";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -13,6 +16,7 @@ import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
@@ -23,6 +27,17 @@ import { colorForKey, initialsFor, StatBlockDrawer, type StatBlock } from "../to
 
 type Token = RouterOutputs["token"]["listForScene"][number];
 type Character = RouterOutputs["campaign"]["listMemberCharacters"][number];
+type OverlayRow = RouterOutputs["overlay"]["listForScene"][number];
+
+type OverlayTool = "circle" | "cone" | "line" | "square";
+
+type DrawState = {
+  tool: OverlayTool;
+  startX: number; // world px
+  startY: number;
+  curX: number;
+  curY: number;
+};
 
 type ExternalDrag =
   | { kind: "character"; characterId: string; sightFt: number }
@@ -69,11 +84,23 @@ export function Stage({ campaignId }: { campaignId: string }) {
     onSuccess: () => utils.campaign.get.invalidate({ campaignId }),
   });
 
+  const { data: overlays } = api.overlay.listForScene.useQuery(
+    { sceneId: sceneId! },
+    { enabled: !!sceneId },
+  );
+  const createOverlay = api.overlay.create.useMutation({
+    onSuccess: () => sceneId && void utils.overlay.listForScene.invalidate({ sceneId }),
+  });
+  const deleteOverlay = api.overlay.delete.useMutation({
+    onSuccess: () => sceneId && void utils.overlay.listForScene.invalidate({ sceneId }),
+  });
+
   function refetchAll() {
     if (!sceneId) return;
     void utils.token.listForScene.invalidate({ sceneId });
     void utils.token.getFogForViewer.invalidate({ sceneId });
     void utils.scene.get.invalidate({ sceneId });
+    void utils.overlay.listForScene.invalidate({ sceneId });
   }
 
   useRoomEvents(sceneId ? `scene:${sceneId}` : undefined, "scene:changed", refetchAll);
@@ -102,13 +129,20 @@ export function Stage({ campaignId }: { campaignId: string }) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
 
-  // Toolbar — more tools (ping, draw, etc.) can slot in alongside "measure"
-  // later by extending this union.
-  const [activeTool, setActiveTool] = useState<"select" | "measure">("select");
+  const [activeTool, setActiveTool] = useState<"select" | "measure" | OverlayTool>("select");
   const measureState = useRef<{ start: { x: number; y: number } } | null>(null);
   const [measureLine, setMeasureLine] = useState<{
     start: { x: number; y: number };
     end: { x: number; y: number };
+  } | null>(null);
+
+  const [overlayLabel, setOverlayLabel] = useState("");
+  const drawState = useRef<DrawState | null>(null);
+  const [drawPreview, setDrawPreview] = useState<DrawState | null>(null);
+  const [overlayContextMenu, setOverlayContextMenu] = useState<{
+    overlayId: string;
+    mouseX: number;
+    mouseY: number;
   } | null>(null);
 
   const panState = useRef<{
@@ -257,7 +291,66 @@ export function Stage({ campaignId }: { campaignId: string }) {
     longPressRef.current = null;
   }
 
+  const OVERLAY_TOOLS: OverlayTool[] = ["circle", "cone", "line", "square"];
+  function isOverlayTool(t: string): t is OverlayTool {
+    return OVERLAY_TOOLS.includes(t as OverlayTool);
+  }
+
+  function snapToGrid(px: number) {
+    return Math.round(px / gridSize) * gridSize;
+  }
+
+  function snapFt(distPx: number) {
+    const pxPerFt = gridSize / 5;
+    return Math.max(5, Math.round(distPx / pxPerFt / 5) * 5);
+  }
+
+  function snapAngle45(angle: number) {
+    return Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+  }
+
+  function overlayDataFromDraw(ds: DrawState): Record<string, unknown> {
+    const { tool, startX, startY, curX, curY } = ds;
+    const pxPerFt = gridSize / 5;
+    if (tool === "circle") {
+      const cx = snapToGrid(startX);
+      const cy = snapToGrid(startY);
+      const radiusFt = snapFt(Math.hypot(curX - cx, curY - cy));
+      return { cx, cy, radiusFt };
+    }
+    if (tool === "cone") {
+      const tx = snapToGrid(startX);
+      const ty = snapToGrid(startY);
+      const rawAngle = Math.atan2(curY - ty, curX - tx);
+      const angle = snapAngle45(rawAngle);
+      const lengthFt = snapFt(Math.hypot(curX - tx, curY - ty));
+      return { tx, ty, angle, lengthFt };
+    }
+    if (tool === "line") {
+      const x1 = snapToGrid(startX);
+      const y1 = snapToGrid(startY);
+      const x2 = snapToGrid(curX);
+      const y2 = snapToGrid(curY);
+      const lengthFt = snapFt(Math.hypot(x2 - x1, y2 - y1));
+      const widthFt = 5;
+      return { x1, y1, x2, y2, lengthFt, widthFt };
+    }
+    // square
+    const cx = snapToGrid(startX);
+    const cy = snapToGrid(startY);
+    const sideFt = snapFt(Math.hypot(curX - cx, curY - cy) * Math.SQRT2);
+    return { cx, cy, sideFt };
+  }
+
   function handleBackgroundPointerDown(e: React.PointerEvent) {
+    if (isOverlayTool(activeTool)) {
+      const { x, y } = screenToWorld(e.clientX, e.clientY);
+      const ds: DrawState = { tool: activeTool, startX: x, startY: y, curX: x, curY: y };
+      drawState.current = ds;
+      setDrawPreview({ ...ds });
+      containerRef.current?.setPointerCapture(e.pointerId);
+      return;
+    }
     if (activeTool === "measure") {
       const start = screenToWorld(e.clientX, e.clientY);
       measureState.current = { start };
@@ -272,6 +365,13 @@ export function Stage({ campaignId }: { campaignId: string }) {
   }
 
   function handleBackgroundPointerMove(e: React.PointerEvent) {
+    if (drawState.current) {
+      const { x, y } = screenToWorld(e.clientX, e.clientY);
+      const ds = { ...drawState.current, curX: x, curY: y };
+      drawState.current = ds;
+      setDrawPreview({ ...ds });
+      return;
+    }
     if (measureState.current) {
       setMeasureLine({ start: measureState.current.start, end: screenToWorld(e.clientX, e.clientY) });
       return;
@@ -285,6 +385,21 @@ export function Stage({ campaignId }: { campaignId: string }) {
   }
 
   function handleBackgroundPointerUp() {
+    if (drawState.current) {
+      const ds = drawState.current;
+      drawState.current = null;
+      setDrawPreview(null);
+      const data = overlayDataFromDraw(ds);
+      if (!sceneId || !session?.user) return;
+      createOverlay.mutate({
+        sceneId,
+        type: ds.tool,
+        color: colorForKey(session.user.id),
+        label: overlayLabel.trim() || undefined,
+        data,
+      });
+      return;
+    }
     if (measureState.current) {
       measureState.current = null;
       setMeasureLine(null);
@@ -374,6 +489,20 @@ export function Stage({ campaignId }: { campaignId: string }) {
     setContextMenu({ tokenId: token.id, mouseX: e.clientX, mouseY: e.clientY });
   }
 
+  function handleOverlayContextMenu(e: React.MouseEvent, overlay: OverlayRow) {
+    e.preventDefault();
+    e.stopPropagation();
+    const isOwn = overlay.userId === session?.user?.id;
+    if (!isOwn && !campaign?.isGm) return;
+    setOverlayContextMenu({ overlayId: overlay.id, mouseX: e.clientX, mouseY: e.clientY });
+  }
+
+  function handleDeleteOverlay() {
+    if (!overlayContextMenu) return;
+    deleteOverlay.mutate({ overlayId: overlayContextMenu.overlayId });
+    setOverlayContextMenu(null);
+  }
+
   function handleRemoveToken() {
     if (!contextMenu) return;
     deleteToken.mutate({ tokenId: contextMenu.tokenId });
@@ -453,6 +582,140 @@ export function Stage({ campaignId }: { campaignId: string }) {
     }
   }
 
+  function renderOverlaySvgShape(
+    type: string,
+    data: Record<string, unknown>,
+    color: string,
+    label?: string | null,
+    key?: string,
+    isPreview = false,
+  ) {
+    const pxPerFt = gridSize / 5;
+    const opacity = isPreview ? 0.5 : 0.3;
+    const strokeOpacity = isPreview ? 0.8 : 0.85;
+    const fillColor = color + "4d"; // 30% opacity hex
+    const strokeColor = color;
+
+    let shape: React.ReactNode = null;
+    let labelX = 0;
+    let labelY = 0;
+
+    if (type === "circle") {
+      const cx = (data.cx as number) ?? 0;
+      const cy = (data.cy as number) ?? 0;
+      const radiusFt = (data.radiusFt as number) ?? 5;
+      const r = radiusFt * pxPerFt;
+      labelX = cx;
+      labelY = cy;
+      shape = (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill={fillColor}
+          fillOpacity={opacity}
+          stroke={strokeColor}
+          strokeWidth={2 / zoom}
+          strokeOpacity={strokeOpacity}
+        />
+      );
+    } else if (type === "cone") {
+      const tx = (data.tx as number) ?? 0;
+      const ty = (data.ty as number) ?? 0;
+      const angle = (data.angle as number) ?? 0;
+      const lengthFt = (data.lengthFt as number) ?? 15;
+      const len = lengthFt * pxPerFt;
+      const halfAngle = Math.PI / 8; // 22.5° each side → 45° total
+      const a1 = angle - halfAngle;
+      const a2 = angle + halfAngle;
+      const x1 = tx + Math.cos(a1) * len;
+      const y1 = ty + Math.sin(a1) * len;
+      const x2 = tx + Math.cos(a2) * len;
+      const y2 = ty + Math.sin(a2) * len;
+      const d = `M ${tx} ${ty} L ${x1} ${y1} A ${len} ${len} 0 0 1 ${x2} ${y2} Z`;
+      labelX = tx + Math.cos(angle) * (len / 2);
+      labelY = ty + Math.sin(angle) * (len / 2);
+      shape = (
+        <path
+          d={d}
+          fill={fillColor}
+          fillOpacity={opacity}
+          stroke={strokeColor}
+          strokeWidth={2 / zoom}
+          strokeOpacity={strokeOpacity}
+        />
+      );
+    } else if (type === "line") {
+      const x1 = (data.x1 as number) ?? 0;
+      const y1 = (data.y1 as number) ?? 0;
+      const x2 = (data.x2 as number) ?? 0;
+      const y2 = (data.y2 as number) ?? 0;
+      const widthFt = (data.widthFt as number) ?? 5;
+      const halfW = (widthFt * pxPerFt) / 2;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = (-dy / len) * halfW;
+      const ny = (dx / len) * halfW;
+      const pts = `${x1 + nx},${y1 + ny} ${x2 + nx},${y2 + ny} ${x2 - nx},${y2 - ny} ${x1 - nx},${y1 - ny}`;
+      labelX = (x1 + x2) / 2;
+      labelY = (y1 + y2) / 2;
+      shape = (
+        <polygon
+          points={pts}
+          fill={fillColor}
+          fillOpacity={opacity}
+          stroke={strokeColor}
+          strokeWidth={2 / zoom}
+          strokeOpacity={strokeOpacity}
+        />
+      );
+    } else if (type === "square") {
+      const cx = (data.cx as number) ?? 0;
+      const cy = (data.cy as number) ?? 0;
+      const sideFt = (data.sideFt as number) ?? 10;
+      const half = (sideFt * pxPerFt) / 2;
+      labelX = cx;
+      labelY = cy;
+      shape = (
+        <rect
+          x={cx - half}
+          y={cy - half}
+          width={half * 2}
+          height={half * 2}
+          fill={fillColor}
+          fillOpacity={opacity}
+          stroke={strokeColor}
+          strokeWidth={2 / zoom}
+          strokeOpacity={strokeOpacity}
+        />
+      );
+    }
+
+    if (!shape) return null;
+    const fontSize = Math.max(10, 13 / zoom);
+
+    return (
+      <g key={key}>
+        {shape}
+        {label && (
+          <text
+            x={labelX}
+            y={labelY}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill={strokeColor}
+            fontSize={fontSize}
+            fontWeight="700"
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {label}
+          </text>
+        )}
+      </g>
+    );
+  }
+
   return (
     <Box
       sx={{
@@ -510,17 +773,40 @@ export function Stage({ campaignId }: { campaignId: string }) {
           <Typography sx={{ fontWeight: 500 }}>{scene.name}</Typography>
         )}
 
-        <Tooltip title="Measure distance — click and drag on the map">
-          <ToggleButton
-            value="measure"
-            selected={activeTool === "measure"}
-            onChange={() => setActiveTool(activeTool === "measure" ? "select" : "measure")}
+        <ToggleButtonGroup
+          value={activeTool === "select" ? null : activeTool}
+          exclusive
+          onChange={(_, val) => setActiveTool(val ?? "select")}
+          size="small"
+          sx={{ "& .MuiToggleButton-root": { border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" } }}
+        >
+          <Tooltip title="Measure distance">
+            <ToggleButton value="measure"><StraightenIcon fontSize="small" /></ToggleButton>
+          </Tooltip>
+          <Tooltip title="Circle AoE (click center, drag radius)">
+            <ToggleButton value="circle"><RadioButtonUncheckedIcon fontSize="small" /></ToggleButton>
+          </Tooltip>
+          <Tooltip title="Cone AoE (click tip, drag direction)">
+            <ToggleButton value="cone"><SignalCellularAltIcon fontSize="small" /></ToggleButton>
+          </Tooltip>
+          <Tooltip title="Line AoE (click-drag start to end)">
+            <ToggleButton value="line"><StraightenIcon fontSize="small" sx={{ transform: "rotate(90deg)" }} /></ToggleButton>
+          </Tooltip>
+          <Tooltip title="Square AoE (click center, drag size)">
+            <ToggleButton value="square"><SquareOutlinedIcon fontSize="small" /></ToggleButton>
+          </Tooltip>
+        </ToggleButtonGroup>
+
+        {isOverlayTool(activeTool) && (
+          <TextField
             size="small"
-            sx={{ border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" }}
-          >
-            <StraightenIcon fontSize="small" />
-          </ToggleButton>
-        </Tooltip>
+            placeholder="Label (optional)"
+            value={overlayLabel}
+            onChange={(e) => setOverlayLabel(e.target.value)}
+            sx={{ width: 160 }}
+            slotProps={{ htmlInput: { style: { fontSize: 12, padding: "4px 8px" } } }}
+          />
+        )}
 
         {campaign.isGm && (
           <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", ml: "auto" }}>
@@ -721,7 +1007,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
             overflow: "hidden",
             touchAction: "none",
             userSelect: "none",
-            cursor: activeTool === "measure" ? "crosshair" : isPanning ? "grabbing" : "grab",
+            cursor: (activeTool === "measure" || isOverlayTool(activeTool)) ? "crosshair" : isPanning ? "grabbing" : "grab",
           }}
         >
           <Box
@@ -821,12 +1107,67 @@ export function Stage({ campaignId }: { campaignId: string }) {
               );
             })}
 
+            {/* Overlay SVG layer — persisted shapes + live draw preview */}
+            <svg
+              width={scene.widthPx}
+              height={scene.heightPx}
+              style={{ position: "absolute", top: 0, left: 0, zIndex: 3, overflow: "visible" }}
+            >
+              {overlays?.map((ov) =>
+                renderOverlaySvgShape(
+                  ov.type,
+                  ov.data as Record<string, unknown>,
+                  ov.color,
+                  ov.label,
+                  ov.id,
+                ),
+              )}
+              {drawPreview &&
+                renderOverlaySvgShape(
+                  drawPreview.tool,
+                  overlayDataFromDraw(drawPreview),
+                  session?.user?.id ? colorForKey(session.user.id) : "#c2a36b",
+                  overlayLabel.trim() || null,
+                  "preview",
+                  true,
+                )}
+            </svg>
+
+            {/* Invisible hit targets for overlay right-click delete */}
+            {overlays?.map((ov) => {
+              const isOwn = ov.userId === session?.user?.id;
+              if (!isOwn && !campaign.isGm) return null;
+              const d = ov.data as Record<string, unknown>;
+              const pxPerFt = gridSize / 5;
+              let cx = 0; let cy = 0; let r = 20;
+              if (ov.type === "circle") { cx = d.cx as number; cy = d.cy as number; r = (d.radiusFt as number) * pxPerFt; }
+              else if (ov.type === "cone") { const len = (d.lengthFt as number) * pxPerFt; const a = d.angle as number; cx = (d.tx as number) + Math.cos(a) * len / 2; cy = (d.ty as number) + Math.sin(a) * len / 2; r = 20; }
+              else if (ov.type === "line") { cx = ((d.x1 as number) + (d.x2 as number)) / 2; cy = ((d.y1 as number) + (d.y2 as number)) / 2; r = 20; }
+              else if (ov.type === "square") { cx = d.cx as number; cy = d.cy as number; r = 20; }
+              return (
+                <Box
+                  key={`hit-${ov.id}`}
+                  onContextMenu={(e) => handleOverlayContextMenu(e, ov)}
+                  sx={{
+                    position: "absolute",
+                    left: cx - r,
+                    top: cy - r,
+                    width: r * 2,
+                    height: r * 2,
+                    borderRadius: "50%",
+                    cursor: "context-menu",
+                    zIndex: 4,
+                  }}
+                />
+              );
+            })}
+
             {measureLine && (
               <>
                 <svg
                   width={scene.widthPx}
                   height={scene.heightPx}
-                  style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 3 }}
+                  style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 5 }}
                 >
                   <line
                     x1={measureLine.start.x}
@@ -1007,6 +1348,15 @@ export function Stage({ campaignId }: { campaignId: string }) {
           </MenuItem>
         )}
         <MenuItem onClick={handleRemoveToken}>Remove token</MenuItem>
+      </Menu>
+
+      <Menu
+        open={!!overlayContextMenu}
+        onClose={() => setOverlayContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={overlayContextMenu ? { top: overlayContextMenu.mouseY, left: overlayContextMenu.mouseX } : undefined}
+      >
+        <MenuItem onClick={handleDeleteOverlay}>Delete overlay</MenuItem>
       </Menu>
 
       <StatBlockDrawer statBlock={viewingStatBlock} onClose={() => setViewingStatBlock(null)} />
