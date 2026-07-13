@@ -9,6 +9,7 @@ import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -60,6 +61,13 @@ export function Stage({ campaignId }: { campaignId: string }) {
     { campaignId },
     { enabled: !!campaign?.isGm },
   );
+  const { data: allScenes } = api.scene.listForCampaign.useQuery(
+    { campaignId },
+    { enabled: !!campaign?.isGm },
+  );
+  const setActiveScene = api.scene.setActive.useMutation({
+    onSuccess: () => utils.campaign.get.invalidate({ campaignId }),
+  });
 
   function refetchAll() {
     if (!sceneId) return;
@@ -474,7 +482,33 @@ export function Stage({ campaignId }: { campaignId: string }) {
         >
           ← Exit
         </Button>
-        <Typography sx={{ fontWeight: 500 }}>{scene.name}</Typography>
+        {campaign.isGm && allScenes && allScenes.length > 1 ? (
+          <Select
+            size="small"
+            value={sceneId ?? ""}
+            onChange={(e) => {
+              if (e.target.value && e.target.value !== sceneId) {
+                setActiveScene.mutate({ campaignId, sceneId: e.target.value });
+              }
+            }}
+            sx={{
+              fontSize: 14,
+              fontWeight: 500,
+              color: "white",
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(255,255,255,0.15)" },
+              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(255,255,255,0.3)" },
+              "& .MuiSelect-icon": { color: "rgba(255,255,255,0.4)" },
+            }}
+          >
+            {allScenes.map((s) => (
+              <MenuItem key={s.id} value={s.id}>
+                {s.name}
+              </MenuItem>
+            ))}
+          </Select>
+        ) : (
+          <Typography sx={{ fontWeight: 500 }}>{scene.name}</Typography>
+        )}
 
         <Tooltip title="Measure distance — click and drag on the map">
           <ToggleButton
