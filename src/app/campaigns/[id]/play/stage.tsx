@@ -7,6 +7,8 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SignalCellularAltIcon from "@mui/icons-material/SignalCellularAlt";
 import StraightenIcon from "@mui/icons-material/Straighten";
 import SquareOutlinedIcon from "@mui/icons-material/SquareOutlined";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -68,10 +70,23 @@ export function Stage({ campaignId }: { campaignId: string }) {
     { sceneId: sceneId! },
     { enabled: !!sceneId },
   );
+  // "full" = GM sees everything (default), "party" = union of all reveals,
+  // any other string = a characterId to see fog through that character's eyes
+  const [gmFogMode, setGmFogMode] = useState<"full" | "party" | string>("full");
+
   const { data: fog } = api.token.getFogForViewer.useQuery(
     { sceneId: sceneId! },
-    { enabled: !!sceneId },
+    { enabled: !!sceneId && (!campaign?.isGm || gmFogMode === "full") },
   );
+  const { data: gmFog } = api.token.getFogAsGm.useQuery(
+    { sceneId: sceneId!, viewAs: gmFogMode },
+    { enabled: !!sceneId && !!campaign?.isGm && gmFogMode !== "full" },
+  );
+  const activeFog = campaign?.isGm && gmFogMode !== "full" ? gmFog : fog;
+
+  const toggleFogLifted = api.scene.toggleFogLifted.useMutation({
+    onSuccess: () => sceneId && void utils.scene.get.invalidate({ sceneId }),
+  });
   const { data: memberCharacters } = api.campaign.listMemberCharacters.useQuery(
     { campaignId },
     { enabled: !!campaign?.isGm },
@@ -99,6 +114,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
     if (!sceneId) return;
     void utils.token.listForScene.invalidate({ sceneId });
     void utils.token.getFogForViewer.invalidate({ sceneId });
+    void utils.token.getFogAsGm.invalidate({ sceneId });
     void utils.scene.get.invalidate({ sceneId });
     void utils.overlay.listForScene.invalidate({ sceneId });
   }
@@ -235,7 +251,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
   const gridSize = scene.gridSize;
   const activeSceneId = scene.id;
-  const revealed = new Set((fog?.revealedCells ?? []).map((c) => `${c.x},${c.y}`));
+  const revealed = new Set((activeFog?.revealedCells ?? []).map((c) => `${c.x},${c.y}`));
   const cols = Math.ceil(scene.widthPx / gridSize);
   const rows = Math.ceil(scene.heightPx / gridSize);
   const placedCharacterIds = new Set(
@@ -851,23 +867,64 @@ export function Stage({ campaignId }: { campaignId: string }) {
         )}
 
         {campaign.isGm && (
-          <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", ml: "auto" }}>
-            <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-              Grid size (px / 5ft)
-            </Typography>
-            <TextField
-              size="small"
-              type="number"
-              value={gridSizeInput}
-              onChange={(e) => setGridSizeInput(Number(e.target.value))}
-              onBlur={() => {
-                if (gridSizeInput > 0 && gridSizeInput !== scene.gridSize) {
-                  updateGridSize.mutate({ sceneId: activeSceneId, gridSize: gridSizeInput });
-                }
-              }}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              sx={{ width: 80 }}
-            />
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", ml: "auto" }}>
+            {/* Lift fog — affects what all players see */}
+            <Tooltip title={scene.fogLifted ? "Fog lifted for all players — click to restore" : "Lift fog for all players"}>
+              <ToggleButton
+                value="fogLifted"
+                selected={scene.fogLifted}
+                onChange={() => toggleFogLifted.mutate({ sceneId: activeSceneId, fogLifted: !scene.fogLifted })}
+                size="small"
+                sx={{
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: scene.fogLifted ? "primary.main" : "rgba(255,255,255,0.5)",
+                  "&.Mui-selected": { bgcolor: "rgba(194,163,107,0.12)", color: "primary.main" },
+                }}
+              >
+                {scene.fogLifted ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+              </ToggleButton>
+            </Tooltip>
+
+            {/* View-as selector — only changes what the GM sees */}
+            <Tooltip title="Change what fog the GM sees (doesn't affect players)">
+              <Select
+                size="small"
+                value={gmFogMode}
+                onChange={(e) => setGmFogMode(e.target.value)}
+                sx={{
+                  fontSize: 12,
+                  color: gmFogMode === "full" ? "rgba(255,255,255,0.5)" : "primary.main",
+                  "& .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(255,255,255,0.12)" },
+                  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(255,255,255,0.25)" },
+                  "& .MuiSelect-icon": { color: "rgba(255,255,255,0.4)" },
+                }}
+              >
+                <MenuItem value="full">Full map</MenuItem>
+                <MenuItem value="party">Party view</MenuItem>
+                {memberCharacters?.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+                ))}
+              </Select>
+            </Tooltip>
+
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+              <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+                Grid (px/5ft)
+              </Typography>
+              <TextField
+                size="small"
+                type="number"
+                value={gridSizeInput}
+                onChange={(e) => setGridSizeInput(Number(e.target.value))}
+                onBlur={() => {
+                  if (gridSizeInput > 0 && gridSizeInput !== scene.gridSize) {
+                    updateGridSize.mutate({ sceneId: activeSceneId, gridSize: gridSizeInput });
+                  }
+                }}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                sx={{ width: 72 }}
+              />
+            </Stack>
           </Stack>
         )}
       </Stack>
@@ -1076,7 +1133,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
               }}
             />
 
-            {!fog?.fogLifted &&
+            {!activeFog?.fogLifted &&
               Array.from({ length: rows }, (_, y) =>
                 Array.from({ length: cols }, (_, x) =>
                   revealed.has(`${x},${y}`) ? null : (

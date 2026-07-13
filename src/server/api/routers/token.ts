@@ -245,4 +245,37 @@ export const tokenRouter = createTRPCRouter({
       emitToRoom(rooms.scene(token.sceneId), "scene:changed");
       return deleted;
     }),
+
+  // GM-only: peek at the fog state from a specific perspective without
+  // changing what players see. viewAs = "party" for the union of all
+  // characters' revealed cells, or a characterId for a single character.
+  getFogAsGm: protectedProcedure
+    .input(z.object({ sceneId: z.string(), viewAs: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const scene = await ctx.db.scene.findUnique({ where: { id: input.sceneId } });
+      if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireGm(ctx.db, scene.campaignId, ctx.session.user.id);
+
+      const merge = (rows: { revealedCells: unknown }[]) => {
+        const seen = new Set<string>();
+        const cells: { x: number; y: number }[] = [];
+        for (const row of rows) {
+          for (const c of row.revealedCells as { x: number; y: number }[]) {
+            const k = `${c.x},${c.y}`;
+            if (!seen.has(k)) { seen.add(k); cells.push(c); }
+          }
+        }
+        return cells;
+      };
+
+      if (input.viewAs === "party") {
+        const rows = await ctx.db.sceneFogReveal.findMany({ where: { sceneId: input.sceneId } });
+        return { fogLifted: false, revealedCells: merge(rows) };
+      }
+
+      const row = await ctx.db.sceneFogReveal.findUnique({
+        where: { sceneId_characterId: { sceneId: input.sceneId, characterId: input.viewAs } },
+      });
+      return { fogLifted: false, revealedCells: merge(row ? [row] : []) };
+    }),
 });
