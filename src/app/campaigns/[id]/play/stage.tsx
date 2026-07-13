@@ -353,7 +353,8 @@ export function Stage({ campaignId }: { campaignId: string }) {
       return;
     }
     if (activeTool === "measure") {
-      const start = screenToWorld(e.clientX, e.clientY);
+      const raw = screenToWorld(e.clientX, e.clientY);
+      const start = { x: snapToGrid(raw.x), y: snapToGrid(raw.y) };
       measureState.current = { start };
       setMeasureLine({ start, end: start });
       containerRef.current?.setPointerCapture(e.pointerId);
@@ -374,7 +375,8 @@ export function Stage({ campaignId }: { campaignId: string }) {
       return;
     }
     if (measureState.current) {
-      setMeasureLine({ start: measureState.current.start, end: screenToWorld(e.clientX, e.clientY) });
+      const raw = screenToWorld(e.clientX, e.clientY);
+      setMeasureLine({ start: measureState.current.start, end: { x: snapToGrid(raw.x), y: snapToGrid(raw.y) } });
       return;
     }
     maybeCancelLongPress(e.clientX, e.clientY);
