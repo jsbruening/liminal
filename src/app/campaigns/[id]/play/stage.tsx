@@ -12,6 +12,8 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
@@ -26,10 +28,29 @@ import { useRoomEvents } from "~/lib/use-room-events";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { NpcLibraryPanel } from "../npc-library-panel";
 import { colorForKey, initialsFor, StatBlockDrawer, type StatBlock } from "../token-visuals";
+import { DiceRoller, type DiceRollEntry } from "./dice-roller";
 
 type Token = RouterOutputs["token"]["listForScene"][number];
 type Character = RouterOutputs["campaign"]["listMemberCharacters"][number];
 type OverlayRow = RouterOutputs["overlay"]["listForScene"][number];
+
+const CONDITIONS = [
+  { id: "blinded",        label: "Blinded",        color: "#9e9e9e" },
+  { id: "charmed",        label: "Charmed",        color: "#e91e8c" },
+  { id: "deafened",       label: "Deafened",       color: "#795548" },
+  { id: "exhausted",      label: "Exhausted",      color: "#ff7043" },
+  { id: "frightened",     label: "Frightened",     color: "#9c27b0" },
+  { id: "grappled",       label: "Grappled",       color: "#ff9800" },
+  { id: "incapacitated",  label: "Incapacitated",  color: "#f44336" },
+  { id: "invisible",      label: "Invisible",      color: "#4dd0e1" },
+  { id: "paralyzed",      label: "Paralyzed",      color: "#2196f3" },
+  { id: "petrified",      label: "Petrified",      color: "#78909c" },
+  { id: "poisoned",       label: "Poisoned",       color: "#66bb6a" },
+  { id: "prone",          label: "Prone",          color: "#ffa726" },
+  { id: "restrained",     label: "Restrained",     color: "#ef5350" },
+  { id: "stunned",        label: "Stunned",        color: "#00bcd4" },
+  { id: "unconscious",    label: "Unconscious",    color: "#37474f" },
+] as const;
 
 type OverlayTool = "circle" | "cone" | "line" | "square";
 
@@ -47,6 +68,7 @@ type ExternalDrag =
 
 type PingPayload = { x: number; y: number; userId: string; name: string };
 type Ping = PingPayload & { id: string };
+type DiceEventPayload = { userId: string; name: string; notation: string; result: number; modifier: number };
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
@@ -131,9 +153,26 @@ export function Stage({ campaignId }: { campaignId: string }) {
   });
   const sendPing = api.scene.ping.useMutation();
 
+  const [diceRolls, setDiceRolls] = useState<DiceRollEntry[]>([]);
+  const diceRollCounter = useRef(0);
+  useRoomEvents<DiceEventPayload>(sceneId ? `scene:${sceneId}` : undefined, "scene:dice", (payload) => {
+    diceRollCounter.current += 1;
+    const entry: DiceRollEntry = { ...payload, id: String(diceRollCounter.current) };
+    setDiceRolls((prev) => [...prev.slice(-9), entry]);
+  });
+
   const moveToken = api.token.move.useMutation();
   const createToken = api.token.create.useMutation({ onSuccess: refetchAll });
   const deleteToken = api.token.delete.useMutation({ onSuccess: refetchAll });
+  const setConditions = api.token.setConditions.useMutation({
+    onMutate: ({ tokenId, conditions }) => {
+      if (!sceneId) return;
+      utils.token.listForScene.setData({ sceneId }, (old) =>
+        old?.map((t) => (t.id === tokenId ? { ...t, conditions } : t)),
+      );
+    },
+    onSettled: () => sceneId && void utils.token.listForScene.invalidate({ sceneId }),
+  });
 
   const setCharacterAvatar = api.campaign.setCharacterAvatar.useMutation({
     onSuccess: () => utils.campaign.listMemberCharacters.invalidate({ campaignId }),
@@ -251,9 +290,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
   const gridSize = scene.gridSize;
   const activeSceneId = scene.id;
-  const revealed = new Set((activeFog?.revealedCells ?? []).map((c) => `${c.x},${c.y}`));
-  const cols = Math.ceil(scene.widthPx / gridSize);
-  const rows = Math.ceil(scene.heightPx / gridSize);
   const placedCharacterIds = new Set(
     (tokens ?? []).map((t) => t.characterId).filter((id): id is string => !!id),
   );
@@ -520,6 +556,17 @@ export function Stage({ campaignId }: { campaignId: string }) {
     setContextMenu(null);
   }
 
+  function handleToggleCondition(conditionId: string) {
+    if (!contextMenu) return;
+    const token = tokens?.find((t) => t.id === contextMenu.tokenId);
+    if (!token) return;
+    const current = token.conditions ?? [];
+    const next = current.includes(conditionId)
+      ? current.filter((c) => c !== conditionId)
+      : [...current, conditionId];
+    setConditions.mutate({ tokenId: contextMenu.tokenId, conditions: next });
+  }
+
   // --- Sidebar -> map drag-to-place ---
 
   function startExternalDrag(e: React.PointerEvent, drag: ExternalDrag) {
@@ -726,7 +773,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
       <g
         key={key}
         onContextMenu={onContextMenu}
-        style={{ cursor: onContextMenu ? "context-menu" : "default" }}
+        style={{ cursor: onContextMenu ? "context-menu" : "default", pointerEvents: onContextMenu ? "auto" : "none" }}
       >
         {shape}
         {/* Drop shadow rect behind text so it's readable on any map */}
@@ -870,19 +917,19 @@ export function Stage({ campaignId }: { campaignId: string }) {
           <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", ml: "auto" }}>
             {/* Lift fog — affects what all players see */}
             <Tooltip title={scene.fogLifted ? "Fog lifted for all players — click to restore" : "Lift fog for all players"}>
-              <ToggleButton
-                value="fogLifted"
-                selected={scene.fogLifted}
-                onChange={() => toggleFogLifted.mutate({ sceneId: activeSceneId, fogLifted: !scene.fogLifted })}
+              <IconButton
+                onClick={() => toggleFogLifted.mutate({ sceneId: activeSceneId, fogLifted: !scene.fogLifted })}
                 size="small"
                 sx={{
                   border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 1,
                   color: scene.fogLifted ? "primary.main" : "rgba(255,255,255,0.5)",
-                  "&.Mui-selected": { bgcolor: "rgba(194,163,107,0.12)", color: "primary.main" },
+                  bgcolor: scene.fogLifted ? "rgba(194,163,107,0.12)" : "transparent",
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.08)" },
                 }}
               >
                 {scene.fogLifted ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-              </ToggleButton>
+              </IconButton>
             </Tooltip>
 
             {/* View-as selector — only changes what the GM sees */}
@@ -1133,24 +1180,47 @@ export function Stage({ campaignId }: { campaignId: string }) {
               }}
             />
 
-            {!activeFog?.fogLifted &&
-              Array.from({ length: rows }, (_, y) =>
-                Array.from({ length: cols }, (_, x) =>
-                  revealed.has(`${x},${y}`) ? null : (
-                    <Box
-                      key={`${x},${y}`}
-                      sx={{
-                        position: "absolute",
-                        left: x * gridSize,
-                        top: y * gridSize,
-                        width: gridSize,
-                        height: gridSize,
-                        bgcolor: "rgba(0,0,0,0.85)",
-                      }}
-                    />
-                  ),
-                ),
-              )}
+            {!activeFog?.fogLifted && (
+              <svg
+                width={scene.widthPx}
+                height={scene.heightPx}
+                style={{ position: "absolute", top: 0, left: 0, zIndex: 2, pointerEvents: "none", overflow: "visible" }}
+              >
+                <defs>
+                  <filter
+                    id="fog-blur"
+                    filterUnits="userSpaceOnUse"
+                    x={-gridSize * 2}
+                    y={-gridSize * 2}
+                    width={scene.widthPx + gridSize * 4}
+                    height={scene.heightPx + gridSize * 4}
+                  >
+                    <feGaussianBlur stdDeviation={gridSize * 0.3} />
+                  </filter>
+                  <mask id="fog-mask">
+                    <rect width={scene.widthPx} height={scene.heightPx} fill="white" />
+                    <g filter="url(#fog-blur)">
+                      {(activeFog?.revealedCells ?? []).map((c) => (
+                        <rect
+                          key={`${c.x},${c.y}`}
+                          x={c.x * gridSize - gridSize * 0.5}
+                          y={c.y * gridSize - gridSize * 0.5}
+                          width={gridSize * 2}
+                          height={gridSize * 2}
+                          fill="black"
+                        />
+                      ))}
+                    </g>
+                  </mask>
+                </defs>
+                <rect
+                  width={scene.widthPx}
+                  height={scene.heightPx}
+                  fill="rgba(18, 15, 28, 0.97)"
+                  mask="url(#fog-mask)"
+                />
+              </svg>
+            )}
 
             {tokens?.map((token) => {
               const ghost = dragGhost?.tokenId === token.id ? dragGhost : null;
@@ -1201,6 +1271,40 @@ export function Stage({ campaignId }: { campaignId: string }) {
                     }}
                   >
                     {!avatarUrl && initialsFor(name)}
+                    {token.conditions.length > 0 && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          bottom: -(Math.max(7, Math.round(gridSize * 0.18)) + 3),
+                          left: "50%",
+                          transform: "translateX(-50%)",
+                          display: "flex",
+                          gap: "2px",
+                          pointerEvents: "none",
+                          zIndex: 3,
+                        }}
+                      >
+                        {token.conditions.slice(0, 6).map((c) => {
+                          const cond = CONDITIONS.find((cd) => cd.id === c);
+                          const size = Math.max(7, Math.round(gridSize * 0.18));
+                          return (
+                            <Box
+                              key={c}
+                              title={cond?.label ?? c}
+                              sx={{
+                                width: size,
+                                height: size,
+                                borderRadius: "50%",
+                                bgcolor: cond?.color ?? "#888",
+                                border: "1px solid rgba(0,0,0,0.55)",
+                                boxShadow: "0 1px 3px rgba(0,0,0,0.7)",
+                                flexShrink: 0,
+                              }}
+                            />
+                          );
+                        })}
+                      </Box>
+                    )}
                   </Box>
                 </Tooltip>
               );
@@ -1210,7 +1314,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
             <svg
               width={scene.widthPx}
               height={scene.heightPx}
-              style={{ position: "absolute", top: 0, left: 0, zIndex: 3, overflow: "visible" }}
+              style={{ position: "absolute", top: 0, left: 0, zIndex: 3, overflow: "visible", pointerEvents: "none" }}
             >
               {overlays?.map((ov) => {
                 const isOwn = ov.userId === session?.user?.id;
@@ -1392,6 +1496,8 @@ export function Stage({ campaignId }: { campaignId: string }) {
           </Box>
         </Box>
 
+        <DiceRoller sceneId={activeSceneId} rolls={diceRolls} />
+
         {externalDragPos && (
           <Box
             sx={{
@@ -1428,6 +1534,39 @@ export function Stage({ campaignId }: { campaignId: string }) {
           </MenuItem>
         )}
         <MenuItem onClick={handleRemoveToken}>Remove token</MenuItem>
+        <Divider sx={{ my: 0.5 }} />
+        <Box sx={{ px: 1.5, pb: 1 }}>
+          <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.35)", mb: 0.75, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Conditions
+          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, maxWidth: 230 }}>
+            {CONDITIONS.map((cond) => {
+              const isActive = contextMenuToken?.conditions.includes(cond.id) ?? false;
+              return (
+                <Box
+                  key={cond.id}
+                  onClick={() => handleToggleCondition(cond.id)}
+                  sx={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    px: 0.75,
+                    py: 0.3,
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    border: `1px solid ${isActive ? cond.color : "rgba(255,255,255,0.12)"}`,
+                    bgcolor: isActive ? cond.color + "2a" : "transparent",
+                    color: isActive ? cond.color : "rgba(255,255,255,0.45)",
+                    userSelect: "none",
+                    transition: "all 0.1s",
+                    "&:hover": { borderColor: cond.color, color: cond.color },
+                  }}
+                >
+                  {cond.label}
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
       </Menu>
 
       <Menu

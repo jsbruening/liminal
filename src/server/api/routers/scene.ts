@@ -139,6 +139,32 @@ export const sceneRouter = createTRPCRouter({
       return { sent: true };
     }),
 
+  // Any campaign member can roll dice — the result is computed client-side
+  // and pushed to the server purely for broadcast to all players in the scene.
+  rollDice: protectedProcedure
+    .input(
+      z.object({
+        sceneId: z.string(),
+        notation: z.string().min(1).max(80),
+        result: z.number().int().min(0),
+        modifier: z.number().int(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const scene = await ctx.db.scene.findUnique({ where: { id: input.sceneId } });
+      if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireMember(ctx.db, scene.campaignId, ctx.session.user.id);
+
+      emitToRoom(rooms.scene(input.sceneId), "scene:dice", {
+        userId: ctx.session.user.id,
+        name: ctx.session.user.name ?? ctx.session.user.email ?? "Adventurer",
+        notation: input.notation,
+        result: input.result,
+        modifier: input.modifier,
+      });
+      return { sent: true };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ sceneId: z.string() }))
     .mutation(async ({ ctx, input }) => {

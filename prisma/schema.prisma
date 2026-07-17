@@ -336,11 +336,12 @@ model Token {
     label    String? // for NPC/monster tokens with no Character record
     imageUrl String?
 
-    gridX     Int
-    gridY     Int
-    size      TokenSize @default(MEDIUM)
-    sightFt   Int       @default(0) // 0 = no vision contribution (e.g. most NPCs)
-    isVisible Boolean   @default(true) // GM can hide a token entirely
+    gridX      Int
+    gridY      Int
+    size       TokenSize @default(MEDIUM)
+    sightFt    Int       @default(0) // 0 = no vision contribution (e.g. most NPCs)
+    isVisible  Boolean   @default(true) // GM can hide a token entirely
+    conditions String[]  @default([]) // active D&D status conditions
 
     // Who can move this token, beyond the defaults (the character's owner,
     // and the campaign's current GM, who can ALWAYS move any token — neither

@@ -231,6 +231,23 @@ export const tokenRouter = createTRPCRouter({
       return { revoked: true };
     }),
 
+  setConditions: protectedProcedure
+    .input(z.object({ tokenId: z.string(), conditions: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const token = await ctx.db.token.findUnique({
+        where: { id: input.tokenId },
+        include: { scene: true },
+      });
+      if (!token) throw new TRPCError({ code: "NOT_FOUND" });
+      await requireGm(ctx.db, token.scene.campaignId, ctx.session.user.id);
+      const updated = await ctx.db.token.update({
+        where: { id: input.tokenId },
+        data: { conditions: input.conditions },
+      });
+      emitToRoom(rooms.scene(token.sceneId), "scene:changed");
+      return updated;
+    }),
+
   delete: protectedProcedure
     .input(z.object({ tokenId: z.string() }))
     .mutation(async ({ ctx, input }) => {
