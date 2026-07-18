@@ -26,11 +26,11 @@ export function JoinRequestsPanel({ campaignId }: { campaignId: string }) {
         {requests.map((req) => (
           <Stack
             key={req.id}
-            direction="row"
-            spacing={2}
-            sx={{ alignItems: "center", justifyContent: "space-between" }}
+            direction={{ xs: "column", sm: "row" }}
+            spacing={{ xs: 1, sm: 2 }}
+            sx={{ alignItems: { xs: "stretch", sm: "center" }, justifyContent: "space-between" }}
           >
-            <Typography variant="body2">
+            <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: "break-word" }}>
               {req.requester.name ?? req.requester.email}
               {req.character && ` — bringing ${req.character.name}`}
             </Typography>

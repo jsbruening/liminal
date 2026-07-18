@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import GroupsIcon from "@mui/icons-material/Groups";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SignalCellularAltIcon from "@mui/icons-material/SignalCellularAlt";
 import StraightenIcon from "@mui/icons-material/Straighten";
@@ -13,16 +14,20 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Divider from "@mui/material/Divider";
+import Fab from "@mui/material/Fab";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
+import SwipeableDrawer from "@mui/material/SwipeableDrawer";
 import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 
 import { useRoomEvents } from "~/lib/use-room-events";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -32,7 +37,6 @@ import { DiceRoller, type DiceRollEntry } from "./dice-roller";
 
 type Token = RouterOutputs["token"]["listForScene"][number];
 type Character = RouterOutputs["campaign"]["listMemberCharacters"][number];
-type OverlayRow = RouterOutputs["overlay"]["listForScene"][number];
 
 const CONDITIONS = [
   { id: "blinded",        label: "Blinded",        color: "#9e9e9e" },
@@ -80,6 +84,9 @@ const PING_LIFETIME_MS = 2100;
 export function Stage({ campaignId }: { campaignId: string }) {
   const { data: session } = useSession();
   const utils = api.useUtils();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const { data: campaign } = api.campaign.get.useQuery({ campaignId });
   const sceneId = campaign?.activeSceneId ?? undefined;
@@ -94,7 +101,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
   );
   // "full" = GM sees everything (default), "party" = union of all reveals,
   // any other string = a characterId to see fog through that character's eyes
-  const [gmFogMode, setGmFogMode] = useState<"full" | "party" | string>("full");
+  const [gmFogMode, setGmFogMode] = useState<string>("full");
 
   const { data: fog } = api.token.getFogForViewer.useQuery(
     { sceneId: sceneId! },
@@ -207,6 +214,12 @@ export function Stage({ campaignId }: { campaignId: string }) {
     panY: number;
   } | null>(null);
 
+  // Pinch-to-zoom: tracks each active touch pointer's last known position.
+  // Once a second touch joins, pan/measure/draw/long-press are cancelled and
+  // pinchState takes over, zooming around the midpoint each move.
+  const touchPointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchState = useRef<{ lastDist: number } | null>(null);
+
   // Long-press-to-ping (default tool only): a timer starts on pointerdown;
   // if the pointer moves past the cancel threshold before it fires, it's a
   // real pan/drag instead. Fired once, never re-armed mid-gesture.
@@ -311,9 +324,13 @@ export function Stage({ campaignId }: { campaignId: string }) {
     return token.controllers.some((c) => c.controlledById === session.user.id);
   }
 
-  function startLongPress(e: React.PointerEvent) {
+  // Long-press on empty map → ping. Long-press on a token (GM only) →
+  // open the same context menu right-click would, instead of pinging.
+  function startLongPress(e: React.PointerEvent, token?: Token) {
     if (activeTool !== "select") return;
     const { x, y } = screenToWorld(e.clientX, e.clientY);
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     const entry = {
       startX: e.clientX,
       startY: e.clientY,
@@ -322,7 +339,14 @@ export function Stage({ campaignId }: { campaignId: string }) {
       fired: false,
       timer: setTimeout(() => {
         entry.fired = true;
-        sendPing.mutate({ sceneId: activeSceneId, x, y });
+        if (token) {
+          if (!campaign!.isGm) return;
+          dragState.current = null;
+          setDragGhost(null);
+          setContextMenu({ tokenId: token.id, mouseX: clientX, mouseY: clientY });
+        } else {
+          sendPing.mutate({ sceneId: activeSceneId, x, y });
+        }
       }, LONG_PRESS_MS),
     };
     longPressRef.current = entry;
@@ -363,7 +387,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
   function overlayDataFromDraw(ds: DrawState): Record<string, unknown> {
     const { tool, startX, startY, curX, curY } = ds;
-    const pxPerFt = gridSize / 5;
     if (tool === "circle") {
       const cx = snapToGrid(startX);
       const cy = snapToGrid(startY);
@@ -395,6 +418,24 @@ export function Stage({ campaignId }: { campaignId: string }) {
   }
 
   function handleBackgroundPointerDown(e: React.PointerEvent) {
+    if (e.pointerType === "touch") {
+      touchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointers.current.size >= 2) {
+        // Second finger just joined — cancel whatever the first finger started
+        // (pan/measure/draw/long-press) and switch into pinch-to-zoom.
+        endLongPress();
+        panState.current = null;
+        setIsPanning(false);
+        measureState.current = null;
+        setMeasureLine(null);
+        drawState.current = null;
+        setDrawPreview(null);
+        containerRef.current?.setPointerCapture(e.pointerId);
+        const pts = [...touchPointers.current.values()];
+        pinchState.current = { lastDist: Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y) };
+        return;
+      }
+    }
     if (e.button !== 0) return; // ignore right-click / middle-click
     if (isOverlayTool(activeTool)) {
       const { x, y } = screenToWorld(e.clientX, e.clientY);
@@ -419,6 +460,25 @@ export function Stage({ campaignId }: { campaignId: string }) {
   }
 
   function handleBackgroundPointerMove(e: React.PointerEvent) {
+    if (e.pointerType === "touch" && touchPointers.current.has(e.pointerId)) {
+      touchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointers.current.size >= 2 && pinchState.current) {
+        const pts = [...touchPointers.current.values()];
+        const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
+        const rect = containerRef.current!.getBoundingClientRect();
+        const cx = (pts[0]!.x + pts[1]!.x) / 2 - rect.left;
+        const cy = (pts[0]!.y + pts[1]!.y) / 2 - rect.top;
+        const factor = dist / pinchState.current.lastDist;
+        const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+        setPan((p) => ({
+          x: cx - (cx - p.x) * (newZoom / zoom),
+          y: cy - (cy - p.y) * (newZoom / zoom),
+        }));
+        setZoom(newZoom);
+        pinchState.current = { lastDist: dist };
+        return;
+      }
+    }
     if (drawState.current) {
       const { x, y } = screenToWorld(e.clientX, e.clientY);
       const ds = { ...drawState.current, curX: x, curY: y };
@@ -439,7 +499,12 @@ export function Stage({ campaignId }: { campaignId: string }) {
     });
   }
 
-  function handleBackgroundPointerUp() {
+  function handleBackgroundPointerUp(e: React.PointerEvent) {
+    if (e.pointerType === "touch") {
+      touchPointers.current.delete(e.pointerId);
+      if (touchPointers.current.size < 2) pinchState.current = null;
+      if (touchPointers.current.size > 0) return; // one finger still down mid-pinch
+    }
     if (drawState.current) {
       const ds = drawState.current;
       drawState.current = null;
@@ -493,7 +558,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
       origGridY: token.gridY,
     };
     setDragGhost({ tokenId: token.id, x: token.gridX * gridSize, y: token.gridY * gridSize });
-    startLongPress(e);
+    startLongPress(e, token);
   }
 
   function handleTokenPointerMove(e: React.PointerEvent) {
@@ -777,7 +842,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
       >
         {shape}
         {/* Drop shadow rect behind text so it's readable on any map */}
-        {(label || measureText) && (
+        {(label ?? measureText) && (
           <rect
             x={labelX - 52 / zoom}
             y={labelY - (label ? fontSize + smallFontSize * 0.5 + 4 / zoom : smallFontSize * 0.5 + 2 / zoom)}
@@ -821,6 +886,152 @@ export function Stage({ campaignId }: { campaignId: string }) {
     );
   }
 
+  const sidebarBody = campaign.isGm ? (
+    <>
+      <Typography
+        sx={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", mb: 1 }}
+      >
+        Party
+      </Typography>
+      <Stack spacing={0.75} sx={{ mb: 2 }}>
+        {memberCharacters
+          ?.filter((c: Character) => !placedCharacterIds.has(c.id))
+          .map((c: Character) => {
+            const sight = characterSight[c.id] ?? 30;
+            return (
+              <Stack
+                key={c.id}
+                direction="row"
+                spacing={0.75}
+                sx={{
+                  alignItems: "center",
+                  p: 0.75,
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  cursor: "grab",
+                  touchAction: "none",
+                  userSelect: "none",
+                  "&:hover": { borderColor: "rgba(194,163,107,0.4)" },
+                }}
+                onPointerDown={(e) =>
+                  startExternalDrag(e, {
+                    kind: "character",
+                    characterId: c.id,
+                    sightFt: sight,
+                  })
+                }
+              >
+                <Tooltip title="Click to change avatar">
+                  <Box
+                    component="label"
+                    htmlFor={`char-avatar-${c.id}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    sx={{ position: "relative", display: "inline-flex", cursor: "pointer", flexShrink: 0 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
+                        background: c.tokenUrl
+                          ? `url(${c.tokenUrl})`
+                          : `linear-gradient(145deg, rgba(255,255,255,0.4), rgba(255,255,255,0) 45%), ${colorForKey(c.id)}`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        color: "#13151a",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 9,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {!c.tokenUrl && initialsFor(c.name)}
+                    </Box>
+                    {uploadingCharacterId === c.id && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          inset: 0,
+                          borderRadius: "50%",
+                          bgcolor: "rgba(0,0,0,0.5)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <CircularProgress size={12} sx={{ color: "white" }} />
+                      </Box>
+                    )}
+                  </Box>
+                </Tooltip>
+                <input
+                  id={`char-avatar-${c.id}`}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => handleCharacterAvatarChange(c.id, e)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  style={{ display: "none" }}
+                />
+                <Typography sx={{ fontSize: 12.5, flex: 1, minWidth: 0 }} noWrap>
+                  {c.name}
+                </Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  value={sight}
+                  onChange={(e) =>
+                    setCharacterSight((prev) => ({ ...prev, [c.id]: Number(e.target.value) }))
+                  }
+                  onPointerDown={(e) => e.stopPropagation()}
+                  sx={{ width: 56 }}
+                  slotProps={{ htmlInput: { style: { fontSize: 11, padding: "4px 6px" } } }}
+                />
+              </Stack>
+            );
+          })}
+        {memberCharacters?.filter((c: Character) => placedCharacterIds.has(c.id)).map((c: Character) => (
+          <Stack
+            key={c.id}
+            direction="row"
+            spacing={0.75}
+            sx={{ alignItems: "center", p: 0.75, opacity: 0.35 }}
+          >
+            <Box
+              sx={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.15)",
+                flexShrink: 0,
+              }}
+            />
+            <Typography sx={{ fontSize: 12.5 }} noWrap>
+              {c.name} — on stage
+            </Typography>
+          </Stack>
+        ))}
+      </Stack>
+
+      <Typography
+        sx={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", mb: 1 }}
+      >
+        NPCs
+      </Typography>
+      <NpcLibraryPanel
+        campaignId={campaignId}
+        onDragStart={(e, npc) =>
+          startExternalDrag(e, { kind: "npcTemplate", templateId: npc.id, sightFt: npc.sightFt })
+        }
+      />
+
+      <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.25)", mt: 1 }}>
+        Drag a card onto the map to place it. Click an avatar to change it. Right-click a
+        token to remove it.
+      </Typography>
+    </>
+  ) : null;
+
   return (
     <Box
       sx={{
@@ -833,9 +1044,11 @@ export function Stage({ campaignId }: { campaignId: string }) {
     >
       <Stack
         direction="row"
-        spacing={2}
+        spacing={{ xs: 1, sm: 2 }}
         sx={{
           alignItems: "center",
+          flexWrap: "wrap",
+          rowGap: 1,
           px: 2,
           py: 1,
           borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -881,7 +1094,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
         <ToggleButtonGroup
           value={activeTool === "select" ? null : activeTool}
           exclusive
-          onChange={(_, val) => setActiveTool(val ?? "select")}
+          onChange={(_, val: "measure" | OverlayTool | null) => setActiveTool(val ?? "select")}
           size="small"
           sx={{ "& .MuiToggleButton-root": { border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" } }}
         >
@@ -914,7 +1127,11 @@ export function Stage({ campaignId }: { campaignId: string }) {
         )}
 
         {campaign.isGm && (
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", ml: "auto" }}>
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{ alignItems: "center", ml: { xs: 0, sm: "auto" }, flexWrap: "wrap", rowGap: 1 }}
+          >
             {/* Lift fog — affects what all players see */}
             <Tooltip title={scene.fogLifted ? "Fog lifted for all players — click to restore" : "Lift fog for all players"}>
               <IconButton
@@ -981,7 +1198,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
         onPointerMove={handleBodyPointerMove}
         onPointerUp={handleBodyPointerUp}
       >
-        {campaign.isGm && (
+        {campaign.isGm && !isMobile && (
           <Box
             sx={{
               width: SIDEBAR_WIDTH,
@@ -991,148 +1208,58 @@ export function Stage({ campaignId }: { campaignId: string }) {
               p: 1.5,
             }}
           >
-            <Typography
-              sx={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", mb: 1 }}
-            >
-              Party
-            </Typography>
-            <Stack spacing={0.75} sx={{ mb: 2 }}>
-              {memberCharacters
-                ?.filter((c: Character) => !placedCharacterIds.has(c.id))
-                .map((c: Character) => {
-                  const sight = characterSight[c.id] ?? 30;
-                  return (
-                    <Stack
-                      key={c.id}
-                      direction="row"
-                      spacing={0.75}
-                      sx={{
-                        alignItems: "center",
-                        p: 0.75,
-                        borderRadius: "6px",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        cursor: "grab",
-                        touchAction: "none",
-                        userSelect: "none",
-                        "&:hover": { borderColor: "rgba(194,163,107,0.4)" },
-                      }}
-                      onPointerDown={(e) =>
-                        startExternalDrag(e, {
-                          kind: "character",
-                          characterId: c.id,
-                          sightFt: sight,
-                        })
-                      }
-                    >
-                      <Tooltip title="Click to change avatar">
-                        <Box
-                          component="label"
-                          htmlFor={`char-avatar-${c.id}`}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          sx={{ position: "relative", display: "inline-flex", cursor: "pointer", flexShrink: 0 }}
-                        >
-                          <Box
-                            sx={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: "50%",
-                              background: c.tokenUrl
-                                ? `url(${c.tokenUrl})`
-                                : `linear-gradient(145deg, rgba(255,255,255,0.4), rgba(255,255,255,0) 45%), ${colorForKey(c.id)}`,
-                              backgroundSize: "cover",
-                              backgroundPosition: "center",
-                              color: "#13151a",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 9,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {!c.tokenUrl && initialsFor(c.name)}
-                          </Box>
-                          {uploadingCharacterId === c.id && (
-                            <Box
-                              sx={{
-                                position: "absolute",
-                                inset: 0,
-                                borderRadius: "50%",
-                                bgcolor: "rgba(0,0,0,0.5)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              <CircularProgress size={12} sx={{ color: "white" }} />
-                            </Box>
-                          )}
-                        </Box>
-                      </Tooltip>
-                      <input
-                        id={`char-avatar-${c.id}`}
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        onChange={(e) => handleCharacterAvatarChange(c.id, e)}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        style={{ display: "none" }}
-                      />
-                      <Typography sx={{ fontSize: 12.5, flex: 1, minWidth: 0 }} noWrap>
-                        {c.name}
-                      </Typography>
-                      <TextField
-                        size="small"
-                        type="number"
-                        value={sight}
-                        onChange={(e) =>
-                          setCharacterSight((prev) => ({ ...prev, [c.id]: Number(e.target.value) }))
-                        }
-                        onPointerDown={(e) => e.stopPropagation()}
-                        sx={{ width: 56 }}
-                        slotProps={{ htmlInput: { style: { fontSize: 11, padding: "4px 6px" } } }}
-                      />
-                    </Stack>
-                  );
-                })}
-              {memberCharacters?.filter((c: Character) => placedCharacterIds.has(c.id)).map((c: Character) => (
-                <Stack
-                  key={c.id}
-                  direction="row"
-                  spacing={0.75}
-                  sx={{ alignItems: "center", p: 0.75, opacity: 0.35 }}
-                >
-                  <Box
-                    sx={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: "50%",
-                      bgcolor: "rgba(255,255,255,0.15)",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Typography sx={{ fontSize: 12.5 }} noWrap>
-                    {c.name} — on stage
-                  </Typography>
-                </Stack>
-              ))}
-            </Stack>
-
-            <Typography
-              sx={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", mb: 1 }}
-            >
-              NPCs
-            </Typography>
-            <NpcLibraryPanel
-              campaignId={campaignId}
-              onDragStart={(e, npc) =>
-                startExternalDrag(e, { kind: "npcTemplate", templateId: npc.id, sightFt: npc.sightFt })
-              }
-            />
-
-            <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.25)", mt: 1 }}>
-              Drag a card onto the map to place it. Click an avatar to change it. Right-click a
-              token to remove it.
-            </Typography>
+            {sidebarBody}
           </Box>
+        )}
+
+        {campaign.isGm && isMobile && (
+          <>
+            <Fab
+              size="small"
+              onClick={() => setMobileSidebarOpen(true)}
+              sx={{
+                position: "absolute",
+                bottom: 16,
+                left: 16,
+                zIndex: 10,
+                bgcolor: "rgba(20,22,26,0.92)",
+                color: "white",
+                "&:hover": { bgcolor: "rgba(30,32,36,0.95)" },
+              }}
+            >
+              <GroupsIcon />
+            </Fab>
+            <SwipeableDrawer
+              anchor="bottom"
+              open={mobileSidebarOpen}
+              onOpen={() => setMobileSidebarOpen(true)}
+              onClose={() => setMobileSidebarOpen(false)}
+              slotProps={{
+                paper: {
+                  sx: {
+                    maxHeight: "70vh",
+                    borderTopLeftRadius: 16,
+                    borderTopRightRadius: 16,
+                    p: 1.5,
+                    overflowY: "auto",
+                    bgcolor: "#0a0b0d",
+                  },
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  width: 36,
+                  height: 4,
+                  borderRadius: 2,
+                  bgcolor: "rgba(255,255,255,0.2)",
+                  mx: "auto",
+                  mb: 1.5,
+                }}
+              />
+              {sidebarBody}
+            </SwipeableDrawer>
+          </>
         )}
 
         <Box
@@ -1143,7 +1270,11 @@ export function Stage({ campaignId }: { campaignId: string }) {
             handleTokenPointerMove(e);
           }}
           onPointerUp={(e) => {
-            handleBackgroundPointerUp();
+            handleBackgroundPointerUp(e);
+            handleTokenPointerUp(e);
+          }}
+          onPointerCancel={(e) => {
+            handleBackgroundPointerUp(e);
             handleTokenPointerUp(e);
           }}
           onWheel={handleWheel}

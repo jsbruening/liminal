@@ -176,8 +176,8 @@ export function NpcLibraryPanel({
           </Box>
         </Stack>
 
-        {/* Two-column body */}
-        <Box sx={{ display: "flex", flex: 1, gap: 3, minHeight: 0 }}>
+        {/* Two-column body — stacks vertically on xs since a fixed-width side panel can't fit next to the list */}
+        <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, flex: 1, gap: 3, minHeight: 0 }}>
           {/* Left: NPC list */}
           <Box sx={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
             {npcTemplates?.length === 0 && (
@@ -291,15 +291,21 @@ export function NpcLibraryPanel({
             </Stack>
           </Box>
 
-          <Divider orientation="vertical" flexItem sx={{ borderColor: "rgba(255,255,255,0.07)" }} />
+          <Divider
+            orientation="vertical"
+            flexItem
+            sx={{ borderColor: "rgba(255,255,255,0.07)", display: { xs: "none", sm: "block" } }}
+          />
 
           {/* Right: stat block panel */}
           <Box
             sx={{
-              width: 320,
+              width: { xs: "100%", sm: 320 },
               flexShrink: 0,
               overflowY: "auto",
-              pl: 1,
+              pl: { xs: 0, sm: 1 },
+              pt: { xs: selectedNpc ? 2 : 0, sm: 0 },
+              borderTop: { xs: selectedNpc ? "1px solid rgba(255,255,255,0.07)" : "none", sm: "none" },
             }}
           >
             {selectedNpc?.statBlock ? (

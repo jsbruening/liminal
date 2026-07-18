@@ -372,7 +372,8 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
                     key={scene.id}
                     sx={{
                       display: "flex",
-                      alignItems: "center",
+                      flexDirection: { xs: "column", sm: "row" },
+                      alignItems: { xs: "stretch", sm: "center" },
                       border: "1px solid",
                       borderColor: isActive ? "rgba(194,163,107,0.45)" : "rgba(255,255,255,0.08)",
                       bgcolor: isActive ? "rgba(194,163,107,0.04)" : "rgba(255,255,255,0.02)",
@@ -384,27 +385,78 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
                       },
                     }}
                   >
-                    {/* Map thumbnail */}
-                    <Box
-                      sx={{
-                        width: 130,
-                        height: 80,
-                        flexShrink: 0,
-                        backgroundImage: scene.mapImageUrl ? `url(${scene.mapImageUrl})` : undefined,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                        bgcolor: "rgba(255,255,255,0.04)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRight: "1px solid rgba(255,255,255,0.06)",
-                      }}
-                    >
-                      {!scene.mapImageUrl && <MapIcon sx={{ color: "rgba(255,255,255,0.15)", fontSize: 28 }} />}
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                      {/* Map thumbnail */}
+                      <Box
+                        sx={{
+                          width: 130,
+                          height: 80,
+                          flexShrink: 0,
+                          backgroundImage: scene.mapImageUrl ? `url(${scene.mapImageUrl})` : undefined,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                          bgcolor: "rgba(255,255,255,0.04)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderRight: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {!scene.mapImageUrl && <MapIcon sx={{ color: "rgba(255,255,255,0.15)", fontSize: 28 }} />}
+                      </Box>
+
+                      {/* Name / inline edit — sm+ only here; on xs it moves below the thumbnail row */}
+                      <Box sx={{ flex: 1, px: 2.5, minWidth: 0, display: { xs: "none", sm: "block" } }}>
+                        {editingSceneId === scene.id ? (
+                          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                            <TextField
+                              size="small"
+                              value={editingSceneName}
+                              onChange={(e) => setEditingSceneName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && editingSceneName.trim())
+                                  updateScene.mutate({ sceneId: scene.id, name: editingSceneName.trim() });
+                                if (e.key === "Escape") setEditingSceneId(null);
+                              }}
+                              autoFocus
+                              sx={{ maxWidth: 240 }}
+                            />
+                            <Button
+                              size="small"
+                              variant="contained"
+                              onClick={() => editingSceneName.trim() && updateScene.mutate({ sceneId: scene.id, name: editingSceneName.trim() })}
+                              disabled={updateScene.isPending || !editingSceneName.trim()}
+                            >
+                              Save
+                            </Button>
+                            <Button size="small" onClick={() => setEditingSceneId(null)}>Cancel</Button>
+                          </Stack>
+                        ) : (
+                          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+                            <Typography sx={{ fontWeight: 500, fontSize: 15 }} noWrap>
+                              {scene.name}
+                            </Typography>
+                            {isActive && (
+                              <Chip
+                                label="Active"
+                                size="small"
+                                sx={{
+                                  bgcolor: "rgba(194,163,107,0.15)",
+                                  color: "#c2a36b",
+                                  border: "1px solid rgba(194,163,107,0.35)",
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  letterSpacing: "0.06em",
+                                }}
+                              />
+                            )}
+                          </Stack>
+                        )}
+                      </Box>
                     </Box>
 
-                    {/* Name / inline edit */}
-                    <Box sx={{ flex: 1, px: 2.5, minWidth: 0 }}>
+                    {/* Name / inline edit — xs only, full-width row below the thumbnail */}
+                    <Box sx={{ px: 2, pt: 1.5, minWidth: 0, display: { xs: "block", sm: "none" } }}>
                       {editingSceneId === scene.id ? (
                         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                           <TextField
@@ -453,7 +505,17 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
                     </Box>
 
                     {/* Actions */}
-                    <Stack direction="row" spacing={0.5} sx={{ px: 2, flexShrink: 0, alignItems: "center" }}>
+                    <Stack
+                      direction="row"
+                      spacing={0.5}
+                      sx={{
+                        px: 2,
+                        py: { xs: 1, sm: 0 },
+                        flexShrink: 0,
+                        alignItems: "center",
+                        justifyContent: { xs: "flex-end", sm: "flex-start" },
+                      }}
+                    >
                       {deleteConfirmId === scene.id ? (
                         <>
                           <Typography sx={{ fontSize: 12, color: "error.main", mr: 0.5 }}>Delete?</Typography>

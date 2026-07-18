@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type DiceBox from "@3d-dice/dice-box";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
@@ -52,7 +53,7 @@ export function DiceRoller({ sceneId, rolls }: Props) {
   } | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
-  const diceBoxRef = useRef<import("@3d-dice/dice-box").default | null>(null);
+  const diceBoxRef = useRef<DiceBox | null>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingModRef = useRef(0);
 
@@ -293,16 +294,15 @@ export function DiceRoller({ sceneId, rolls }: Props) {
           </Box>
         )}
 
-        {/* Die selector — left-click to add, right-click to remove */}
+        {/* Die selector — tap to add, tap the − badge to remove */}
         <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
           {DICE_SIZES.map((sides) => {
             const count = counts[sides];
             const active = count > 0;
             return (
-              <Tooltip key={sides} title={`Left-click to add d${sides}, right-click to remove`} placement="top">
+              <Tooltip key={sides} title={`Tap to add d${sides}`} placement="top">
                 <Box
                   onClick={() => increment(sides)}
-                  onContextMenu={(e) => { e.preventDefault(); decrement(sides); }}
                   sx={{
                     position: "relative",
                     width: 34,
@@ -347,6 +347,31 @@ export function DiceRoller({ sceneId, rolls }: Props) {
                       }}
                     >
                       {count}
+                    </Box>
+                  )}
+                  {active && (
+                    <Box
+                      onClick={(e) => { e.stopPropagation(); decrement(sides); }}
+                      sx={{
+                        position: "absolute",
+                        bottom: -6,
+                        right: -6,
+                        width: 16,
+                        height: 16,
+                        borderRadius: "50%",
+                        bgcolor: "rgba(30,32,36,0.95)",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        fontWeight: 800,
+                        lineHeight: 1,
+                        color: "rgba(255,255,255,0.7)",
+                        "&:hover": { color: "white", borderColor: "rgba(255,255,255,0.4)" },
+                      }}
+                    >
+                      −
                     </Box>
                   )}
                 </Box>

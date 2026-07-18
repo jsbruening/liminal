@@ -1,4 +1,4 @@
-import { type Metadata } from "next";
+import { type Metadata, type Viewport } from "next";
 
 import { TRPCReactProvider } from "~/trpc/react";
 import { sans, serif } from "~/theme";
@@ -8,6 +8,12 @@ export const metadata: Metadata = {
   title: "Liminal",
   description: "A virtual tabletop for your campaign.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
