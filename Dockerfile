@@ -28,6 +28,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # during `next build`, never for an actual connection.
 ENV SKIP_ENV_VALIDATION=1
 RUN npx prisma generate
+# --ignore-scripts above skipped postinstall, which normally copies the
+# dice-box 3D assets (ammo.wasm, textures, theme configs) into public/ —
+# do it explicitly so dice rolling has assets to load in production.
+RUN node scripts/setup-dice-assets.mjs
 RUN npm run build
 
 FROM base AS runner
