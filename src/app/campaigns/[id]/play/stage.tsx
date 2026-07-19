@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
 import GroupsIcon from "@mui/icons-material/Groups";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SignalCellularAltIcon from "@mui/icons-material/SignalCellularAlt";
@@ -265,10 +266,9 @@ export function Stage({ campaignId }: { campaignId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene?.gridSize]);
 
-  // Fit the map to the viewport once, the first time scene dimensions are known.
-  useEffect(() => {
-    if (!scene || fitDone.current || !containerRef.current) return;
+  const fitToContainer = useCallback(() => {
     const el = containerRef.current;
+    if (!el || !scene || el.clientWidth === 0 || el.clientHeight === 0) return;
     const fit =
       Math.min(el.clientWidth / scene.widthPx, el.clientHeight / scene.heightPx) * 0.95;
     setZoom(fit);
@@ -276,8 +276,27 @@ export function Stage({ campaignId }: { campaignId: string }) {
       x: (el.clientWidth - scene.widthPx * fit) / 2,
       y: (el.clientHeight - scene.heightPx * fit) / 2,
     });
-    fitDone.current = true;
   }, [scene]);
+
+  // Fit the map to the viewport once real container dimensions are available.
+  // A single clientWidth/clientHeight read right on mount isn't reliable on
+  // iOS Safari — its chrome (URL bar) collapses/expands after first paint, so
+  // the container can still be mid-layout with a 0 or stale size at that
+  // instant. A ResizeObserver lets us keep trying until we see a real size,
+  // instead of permanently locking in a bad fit.
+  useEffect(() => {
+    if (!scene || !containerRef.current) return;
+    const el = containerRef.current;
+    const observer = new ResizeObserver(() => {
+      if (fitDone.current) return;
+      if (el.clientWidth > 0 && el.clientHeight > 0) {
+        fitToContainer();
+        fitDone.current = true;
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scene, fitToContainer]);
 
   if (!campaign) return null;
 
@@ -1034,8 +1053,8 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
   return (
     <Box
+      className="liminal-stage-viewport"
       sx={{
-        height: "100vh",
         overflow: "hidden",
         bgcolor: "#0a0b0d",
         display: "flex",
@@ -1261,6 +1280,27 @@ export function Stage({ campaignId }: { campaignId: string }) {
             </SwipeableDrawer>
           </>
         )}
+
+        <Tooltip title="Reset view">
+          <Fab
+            size="small"
+            onClick={() => {
+              fitToContainer();
+              fitDone.current = true;
+            }}
+            sx={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              zIndex: 10,
+              bgcolor: "rgba(20,22,26,0.92)",
+              color: "white",
+              "&:hover": { bgcolor: "rgba(30,32,36,0.95)" },
+            }}
+          >
+            <CenterFocusStrongIcon />
+          </Fab>
+        </Tooltip>
 
         <Box
           ref={containerRef}

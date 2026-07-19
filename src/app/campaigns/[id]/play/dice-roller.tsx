@@ -62,14 +62,34 @@ export function DiceRoller({ sceneId, rolls }: Props) {
   useEffect(() => {
     setPortalTarget(document.body);
 
-    const W = window.innerWidth;
-    const H = window.innerHeight;
     const container = document.createElement("div");
     container.id = CONTAINER_ID;
-    container.style.cssText = `position:fixed;top:0;left:0;width:${W}px;height:${H}px;z-index:1100;pointer-events:none;`;
+    container.style.cssText = `position:fixed;top:0;left:0;width:${window.innerWidth}px;height:${window.innerHeight}px;z-index:1100;pointer-events:none;`;
     document.body.appendChild(container);
 
     let active = true;
+
+    // Keep the dice overlay's container (and canvas) in sync with the real
+    // viewport size. A single window.innerWidth/innerHeight read at mount is
+    // unreliable on iOS Safari, whose chrome (URL bar) collapses/expands
+    // after first paint. Dispatching a "resize" event afterward also nudges
+    // DiceBox's own internal resize listener, which re-syncs its renderer to
+    // canvas.clientWidth/clientHeight.
+    function syncContainerSize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      container.style.width = `${w}px`;
+      container.style.height = `${h}px`;
+      const canvas = container.querySelector("canvas");
+      if (canvas instanceof HTMLCanvasElement) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      window.dispatchEvent(new Event("resize"));
+    }
+
+    const resizeObserver = new ResizeObserver(() => syncContainerSize());
+    resizeObserver.observe(document.documentElement);
 
     void (async () => {
       try {
@@ -102,12 +122,8 @@ export function DiceRoller({ sceneId, rolls }: Props) {
         await box.init();
         if (!active) return;
 
+        syncContainerSize();
         const canvas = container.querySelector("canvas");
-        if (canvas instanceof HTMLCanvasElement && canvas.width === 0) {
-          canvas.width = W;
-          canvas.height = H;
-          window.dispatchEvent(new Event("resize"));
-        }
         if (canvas instanceof HTMLElement) canvas.style.pointerEvents = "none";
 
         diceBoxRef.current = box;
@@ -118,6 +134,7 @@ export function DiceRoller({ sceneId, rolls }: Props) {
 
     return () => {
       active = false;
+      resizeObserver.disconnect();
       if (document.body.contains(container)) document.body.removeChild(container);
     };
   }, []);

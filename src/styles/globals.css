@@ -14,3 +14,12 @@ a {
 * {
   box-sizing: border-box;
 }
+
+/* iOS Safari's chrome (URL bar) collapses/expands after first paint, so 100vh
+   measures the wrong height at load time. 100dvh tracks the real visible
+   viewport; the plain 100vh above is the fallback for browsers that don't
+   support dvh (the second declaration is simply dropped by those parsers). */
+.liminal-stage-viewport {
+  height: 100vh;
+  height: 100dvh;
+}
