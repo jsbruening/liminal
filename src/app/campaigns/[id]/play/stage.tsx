@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import CasinoOutlinedIcon from "@mui/icons-material/CasinoOutlined";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import GroupsIcon from "@mui/icons-material/Groups";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import SignalCellularAltIcon from "@mui/icons-material/SignalCellularAlt";
 import StraightenIcon from "@mui/icons-material/Straighten";
@@ -34,7 +37,8 @@ import { useRoomEvents } from "~/lib/use-room-events";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { NpcLibraryPanel } from "../npc-library-panel";
 import { colorForKey, initialsFor, StatBlockDrawer, type StatBlock } from "../token-visuals";
-import { DiceRoller, type DiceRollEntry, type RollCategory } from "./dice-roller";
+import { DiceEngineProvider, type DiceRollEntry, type RollCategory } from "./use-dice-engine";
+import { RightPanelContent } from "./right-panel-content";
 
 type Token = RouterOutputs["token"]["listForScene"][number];
 type Character = RouterOutputs["campaign"]["listMemberCharacters"][number];
@@ -94,7 +98,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
   const utils = api.useUtils();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const { data: campaign } = api.campaign.get.useQuery({ campaignId });
   const sceneId = campaign?.activeSceneId ?? undefined;
@@ -174,8 +177,15 @@ export function Stage({ campaignId }: { campaignId: string }) {
   useRoomEvents<DiceEventPayload>(sceneId ? `scene:${sceneId}` : undefined, "scene:dice", (payload) => {
     diceRollCounter.current += 1;
     const entry: DiceRollEntry = { ...payload, id: String(diceRollCounter.current) };
-    setDiceRolls((prev) => [...prev.slice(-9), entry]);
+    // Log is a real dedicated view now, not a cramped floating-panel corner —
+    // keep more history than the old 10-entry cap.
+    setDiceRolls((prev) => [...prev.slice(-49), entry]);
   });
+
+  // Mobile: one bottom tab bar drives one shared drawer, instead of a
+  // separate Fab+drawer for the GM's Party panel and another mechanism for
+  // Sheet/Dice/Log. "party" only ever appears as an option for the GM.
+  const [mobileActiveTab, setMobileActiveTab] = useState<"sheet" | "dice" | "log" | "party" | null>(null);
 
   const moveToken = api.token.move.useMutation();
   const createToken = api.token.create.useMutation({ onSuccess: refetchAll });
@@ -1060,6 +1070,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
   ) : null;
 
   return (
+    <DiceEngineProvider sceneId={activeSceneId}>
     <Box
       sx={{
         height: "100dvh",
@@ -1237,56 +1248,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
           >
             {sidebarBody}
           </Box>
-        )}
-
-        {campaign.isGm && isMobile && (
-          <>
-            <Fab
-              size="small"
-              onClick={() => setMobileSidebarOpen(true)}
-              sx={{
-                position: "absolute",
-                bottom: 16,
-                left: 16,
-                zIndex: 10,
-                bgcolor: "rgba(20,22,26,0.92)",
-                color: "white",
-                "&:hover": { bgcolor: "rgba(30,32,36,0.95)" },
-              }}
-            >
-              <GroupsIcon />
-            </Fab>
-            <SwipeableDrawer
-              anchor="bottom"
-              open={mobileSidebarOpen}
-              onOpen={() => setMobileSidebarOpen(true)}
-              onClose={() => setMobileSidebarOpen(false)}
-              slotProps={{
-                paper: {
-                  sx: {
-                    maxHeight: "70vh",
-                    borderTopLeftRadius: 16,
-                    borderTopRightRadius: 16,
-                    p: 1.5,
-                    overflowY: "auto",
-                    bgcolor: "#0a0b0d",
-                  },
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  width: 36,
-                  height: 4,
-                  borderRadius: 2,
-                  bgcolor: "rgba(255,255,255,0.2)",
-                  mx: "auto",
-                  mb: 1.5,
-                }}
-              />
-              {sidebarBody}
-            </SwipeableDrawer>
-          </>
         )}
 
         <Tooltip title="Reset view">
@@ -1675,7 +1636,109 @@ export function Stage({ campaignId }: { campaignId: string }) {
           </Box>
         </Box>
 
-        <DiceRoller sceneId={activeSceneId} rolls={diceRolls} characters={myCharacters ?? []} />
+        {!isMobile && (
+          <Box
+            sx={{
+              width: 376,
+              flexShrink: 0,
+              borderLeft: "1px solid rgba(255,255,255,0.08)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <RightPanelContent rolls={diceRolls} characters={myCharacters ?? []} />
+          </Box>
+        )}
+
+        {isMobile && (
+          <>
+            <Box
+              sx={{
+                position: "fixed",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 48,
+                pb: "env(safe-area-inset-bottom)",
+                bgcolor: "rgba(10,11,13,0.96)",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                display: "flex",
+                zIndex: 20,
+              }}
+            >
+              {(
+                [
+                  { key: "sheet" as const, label: "Sheet", icon: DescriptionOutlinedIcon },
+                  { key: "dice" as const, label: "Dice", icon: CasinoOutlinedIcon },
+                  { key: "log" as const, label: "Log", icon: HistoryOutlinedIcon },
+                  ...(campaign.isGm ? [{ key: "party" as const, label: "Party", icon: GroupsIcon }] : []),
+                ]
+              ).map(({ key, label, icon: Icon }) => (
+                <Box
+                  key={key}
+                  onClick={() => setMobileActiveTab((cur) => (cur === key ? null : key))}
+                  sx={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 0.25,
+                    cursor: "pointer",
+                    color: mobileActiveTab === key ? "primary.main" : "rgba(255,255,255,0.5)",
+                  }}
+                >
+                  <Icon sx={{ fontSize: 18 }} />
+                  <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.02em", textTransform: "uppercase" }}>
+                    {label}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+
+            <SwipeableDrawer
+              anchor="bottom"
+              open={mobileActiveTab !== null}
+              onOpen={() => setMobileActiveTab((cur) => cur ?? "sheet")}
+              onClose={() => setMobileActiveTab(null)}
+              slotProps={{
+                paper: {
+                  sx: {
+                    maxHeight: "70vh",
+                    borderTopLeftRadius: 16,
+                    borderTopRightRadius: 16,
+                    overflowY: "auto",
+                    bgcolor: "#0a0b0d",
+                  },
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  width: 36,
+                  height: 4,
+                  borderRadius: 2,
+                  bgcolor: "rgba(255,255,255,0.2)",
+                  mx: "auto",
+                  mt: 1.5,
+                  mb: 1,
+                }}
+              />
+              {mobileActiveTab === "party" && <Box sx={{ p: 1.5 }}>{sidebarBody}</Box>}
+              {mobileActiveTab && mobileActiveTab !== "party" && (
+                <Box sx={{ height: "60vh" }}>
+                  <RightPanelContent
+                    rolls={diceRolls}
+                    characters={myCharacters ?? []}
+                    tab={mobileActiveTab}
+                    onTabChange={setMobileActiveTab}
+                    hideTabs
+                  />
+                </Box>
+              )}
+            </SwipeableDrawer>
+          </>
+        )}
 
         {externalDragPos && (
           <Box
@@ -1759,5 +1822,6 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
       <StatBlockDrawer statBlock={viewingStatBlock} onClose={() => setViewingStatBlock(null)} />
     </Box>
+    </DiceEngineProvider>
   );
 }
