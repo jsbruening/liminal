@@ -23,6 +23,12 @@ const panelSx = {
   border: "1px solid rgba(255,255,255,0.07)",
 };
 
+function ordinalLevel(level: number): string {
+  if (level === 0) return "Cantrips";
+  const suffix = level === 1 ? "st" : level === 2 ? "nd" : level === 3 ? "rd" : "th";
+  return `${level}${suffix} Level`;
+}
+
 function ProficiencyDot({ proficient, expertise }: { proficient: boolean; expertise: boolean }) {
   return (
     <Box
@@ -61,6 +67,12 @@ export function CharacterSheet({ sheet }: { sheet: DdbCharacterSheet }) {
           { label: "Initiative", value: signed(sheet.initiative) },
           { label: "Prof. Bonus", value: signed(sheet.proficiencyBonus) },
           { label: "Passive Perception", value: sheet.passivePerception },
+          ...(sheet.spellcastingAbility
+            ? [
+                { label: "Spell Save DC", value: sheet.spellSaveDc! },
+                { label: "Spell Attack", value: signed(sheet.spellAttackBonus!) },
+              ]
+            : []),
         ].map((s) => (
           <Box key={s.label}>
             <Typography sx={labelSx}>{s.label}</Typography>
@@ -144,6 +156,57 @@ export function CharacterSheet({ sheet }: { sheet: DdbCharacterSheet }) {
                 {a.toHit != null ? ` · to hit ${signed(a.toHit)}` : ""}
                 {a.damage ? ` · ${a.damage}` : ""}
               </Typography>
+            ))}
+          </Box>
+        </>
+      )}
+
+      {sheet.spellSlots.length > 0 && (
+        <Stack direction="row" spacing={3} sx={{ mt: 2, mb: sheet.spells.length > 0 ? 2 : 0, flexWrap: "wrap", rowGap: 1 }}>
+          {sheet.spellSlots.map((slot) => (
+            <Box key={slot.level}>
+              <Typography sx={labelSx}>{ordinalLevel(slot.level)} Slots</Typography>
+              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+                {slot.available}/{slot.available + slot.used}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      )}
+
+      {sheet.spells.length > 0 && (
+        <>
+          <Typography
+            sx={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "primary.main", mb: 1 }}
+          >
+            Spells
+          </Typography>
+          <Box sx={{ ...panelSx, p: 1.5 }}>
+            {Object.entries(
+              sheet.spells.reduce<Record<number, typeof sheet.spells>>((groups, spell) => {
+                (groups[spell.level] ??= []).push(spell);
+                return groups;
+              }, {}),
+            ).map(([levelStr, spellsAtLevel]) => (
+              <Box key={levelStr} sx={{ mb: 1.5, "&:last-child": { mb: 0 } }}>
+                <Typography sx={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.06em", mb: 0.5 }}>
+                  {ordinalLevel(Number(levelStr))}
+                </Typography>
+                {spellsAtLevel.map((s) => {
+                  const parts: string[] = [];
+                  if (s.savingThrowAbility) parts.push(`${s.savingThrowAbility} save`);
+                  if (s.attackRoll) parts.push(`attack roll ${signed(sheet.spellAttackBonus ?? 0)}`);
+                  if (s.damageRoll) parts.push(`${s.damageRoll}${s.damageType ? ` ${s.damageType}` : ""} dmg`);
+                  return (
+                    <Typography key={s.name} sx={{ fontSize: 12.5, mb: 0.5, lineHeight: 1.6 }}>
+                      <Box component="span" sx={{ fontWeight: 700 }}>
+                        {s.name}
+                      </Box>
+                      {parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}
+                    </Typography>
+                  );
+                })}
+              </Box>
             ))}
           </Box>
         </>

@@ -1,4 +1,5 @@
 import "server-only";
+import { lookupSpellMechanics } from "~/server/open5e";
 
 // Thin client for D&D Beyond's unofficial character-data endpoint. There is
 // no supported/documented DDB API — this is the same endpoint community
@@ -6,13 +7,19 @@ import "server-only";
 // blocked without notice, and only works for characters shared as "Public".
 //
 // The shapes below (Raw* interfaces, mapDdbCharacter) were verified against
-// one real public character's live response (a level 11 Rogue) — not a
+// two real public characters' live responses (a level 11 Rogue with no real
+// spellcasting, and a level 13 Paladin with real prepared spells) — not a
 // spec. Known gaps, deliberately deferred for v1: weapon proficiency is
 // assumed for anything equipped (not cross-checked against the character's
 // actual weapon-category proficiencies, since that needs a static
-// simple/martial weapon table); spell attacks aren't included, only
-// mundane/magic weapons; multiclass spellcasting and some exotic feat
-// interactions aren't modeled.
+// simple/martial weapon table); a multiclass character's spellcasting only
+// uses the first spellcasting class found, not stacked across classes;
+// Warlock pact magic slots aren't tracked (only regular spellSlots), so
+// Warlocks will show missing/wrong slot counts; ritual casting and
+// concentration aren't flagged; some exotic feat interactions aren't
+// modeled. Spell *mechanics* (damage/save/attack-roll) come from open5e's
+// SRD spell list (src/server/open5e.ts), looked up by name — see that
+// file's header for why DDB's own spell-effect fields aren't used instead.
 
 const CHARACTER_SERVICE_BASE = "https://character-service.dndbeyond.com";
 const ALLOWED_HOSTS = new Set(["dndbeyond.com", "www.dndbeyond.com"]);
@@ -100,7 +107,33 @@ interface RawDdbChoices {
 
 interface RawDdbClass {
   level: number;
-  definition: { name: string };
+  definition: {
+    name: string;
+    spellCastingAbilityId?: number | null;
+    spellRules?: { levelSpellSlots?: number[][] | null } | null;
+  };
+}
+
+interface RawDdbSpellDefinition {
+  name: string;
+  level: number;
+}
+
+interface RawDdbSpellEntry {
+  definition: RawDdbSpellDefinition;
+  prepared: boolean;
+  alwaysPrepared?: boolean;
+}
+
+interface RawDdbClassSpells {
+  characterClassId: number;
+  spells: RawDdbSpellEntry[];
+}
+
+interface RawDdbSpellSlot {
+  level: number;
+  used: number;
+  available: number;
 }
 
 interface RawDdbInventoryItem {
@@ -136,6 +169,9 @@ interface RawDdbCharacterData {
   modifiers?: Record<string, RawDdbModifier[]> | null; // keyed "race"|"class"|"background"|"feat"|"item"|"condition"
   inventory?: RawDdbInventoryItem[] | null;
   choices?: RawDdbChoices | null;
+  spells?: Record<string, RawDdbSpellEntry[] | null> | null; // keyed "race"|"class"|"background"|"feat"|"item"
+  classSpells?: RawDdbClassSpells[] | null;
+  spellSlots?: RawDdbSpellSlot[] | null;
 }
 
 export async function fetchDdbCharacter(characterId: string): Promise<RawDdbCharacterData> {
@@ -359,6 +395,62 @@ function computeAttacks(
   });
 }
 
+// Known/active spells come from raw.spells.* (race/class/background/item/
+// feat-granted, always available) plus raw.classSpells. The latter needs
+// NO filtering by prepared/alwaysPrepared/countsAsKnownSpell — DDB already
+// curates that array down to just the character's real active spells.
+// Verified against two very differently-shaped real casters: a Paladin
+// (prepares daily) had exactly 9 entries, all prepared:true; an Arcane
+// Trickster Rogue (permanently knows a fixed list, never prepares) had 11
+// entries, all prepared:false but countsAsKnownSpell:true. An earlier
+// version of this function filtered on prepared/alwaysPrepared, which
+// happened to work for the Paladin but wrongly excluded every one of the
+// Rogue's actually-known spells (confirmed against their real D&D Beyond
+// sheet, which does show Disguise Self/Find Familiar/Shield/etc.).
+function collectKnownSpells(raw: RawDdbCharacterData): { name: string; level: number }[] {
+  const byName = new Map<string, number>();
+  for (const cat of ["race", "class", "background", "item", "feat"] as const) {
+    for (const entry of raw.spells?.[cat] ?? []) {
+      byName.set(entry.definition.name, entry.definition.level);
+    }
+  }
+  for (const cs of raw.classSpells ?? []) {
+    for (const entry of cs.spells) {
+      byName.set(entry.definition.name, entry.definition.level);
+    }
+  }
+  return [...byName.entries()].map(([name, level]) => ({ name, level }));
+}
+
+// A multiclass character could have more than one spellcasting class; v1
+// uses the first one found rather than stacking them (see file header).
+function findSpellcastingClass(raw: RawDdbCharacterData): RawDdbClass | null {
+  return (raw.classes ?? []).find((c) => c.definition.spellCastingAbilityId != null) ?? null;
+}
+
+// levelSpellSlots is indexed by character level directly (not level - 1) —
+// verified against a real Paladin 13, whose table[13] = [4,3,3,1,0,...],
+// matching the real 5e Paladin slot table at level 13. Each array position
+// is one spell level (index 0 = 1st-level slots). Only raw.spellSlots is
+// used, not pactMagic (Warlock pact slots) — see file header gap note.
+function computeSpellSlots(
+  raw: RawDdbCharacterData,
+  spellcastingClass: RawDdbClass | null,
+): { level: number; available: number; used: number }[] {
+  const maxTable = spellcastingClass?.definition.spellRules?.levelSpellSlots?.[spellcastingClass.level] ?? [];
+  const usedByLevel = new Map<number, number>();
+  for (const slot of raw.spellSlots ?? []) usedByLevel.set(slot.level, slot.used);
+
+  const slots: { level: number; available: number; used: number }[] = [];
+  maxTable.forEach((max, idx) => {
+    if (max <= 0) return;
+    const level = idx + 1;
+    const used = usedByLevel.get(level) ?? 0;
+    slots.push({ level, available: Math.max(0, max - used), used });
+  });
+  return slots;
+}
+
 export interface DdbCharacterSheet {
   name: string;
   race: string;
@@ -374,9 +466,22 @@ export interface DdbCharacterSheet {
   skills: { name: string; ability: string; modifier: number; proficient: boolean; expertise: boolean }[];
   passivePerception: number;
   attacks: { name: string; toHit: number | null; damage: string | null }[];
+  spellcastingAbility: AbilityKey | null;
+  spellSaveDc: number | null;
+  spellAttackBonus: number | null;
+  spellSlots: { level: number; available: number; used: number }[];
+  spells: {
+    name: string;
+    level: number;
+    damageRoll: string | null;
+    damageType: string | null;
+    savingThrowAbility: string | null;
+    attackRoll: boolean;
+    higherLevelDamage: { slotLevel: number; damageRoll: string }[];
+  }[];
 }
 
-export function mapDdbCharacter(raw: RawDdbCharacterData): DdbCharacterSheet {
+export async function mapDdbCharacter(raw: RawDdbCharacterData): Promise<DdbCharacterSheet> {
   const classes = (raw.classes ?? []).map((c) => ({ name: c.definition.name, level: c.level }));
   const totalLevel = classes.reduce((sum, c) => sum + c.level, 0) || 1;
   const proficiencyBonus = proficiencyBonusForLevel(totalLevel);
@@ -394,6 +499,36 @@ export function mapDdbCharacter(raw: RawDdbCharacterData): DdbCharacterSheet {
   const perceptionSkill = skills.find((s) => s.name === "Perception");
   const passivePerception = 10 + (perceptionSkill?.modifier ?? abilities.wis.modifier);
 
+  const spellcastingClass = findSpellcastingClass(raw);
+  const spellcastingAbility = spellcastingClass
+    ? ABILITY_ID_TO_KEY[spellcastingClass.definition.spellCastingAbilityId!] ?? null
+    : null;
+  const spellSaveDc = spellcastingAbility
+    ? 8 + proficiencyBonus + abilities[spellcastingAbility].modifier
+    : null;
+  const spellAttackBonus = spellcastingAbility
+    ? proficiencyBonus + abilities[spellcastingAbility].modifier
+    : null;
+  const spellSlots = computeSpellSlots(raw, spellcastingClass);
+
+  const knownSpells = collectKnownSpells(raw);
+  const spells = (
+    await Promise.all(
+      knownSpells.map(async ({ name, level }) => {
+        const mechanics = await lookupSpellMechanics(name);
+        return {
+          name,
+          level,
+          damageRoll: mechanics?.damageRoll ?? null,
+          damageType: mechanics?.damageType ?? null,
+          savingThrowAbility: mechanics?.savingThrowAbility ?? null,
+          attackRoll: mechanics?.attackRoll ?? false,
+          higherLevelDamage: mechanics?.higherLevelDamage ?? [],
+        };
+      }),
+    )
+  ).sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+
   return {
     name: raw.name,
     race: raw.race?.fullName ?? raw.race?.baseName ?? "Unknown",
@@ -409,5 +544,10 @@ export function mapDdbCharacter(raw: RawDdbCharacterData): DdbCharacterSheet {
     skills,
     passivePerception,
     attacks,
+    spellcastingAbility,
+    spellSaveDc,
+    spellAttackBonus,
+    spellSlots,
+    spells,
   };
 }
