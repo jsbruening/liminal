@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import LinkIcon from "@mui/icons-material/Link";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemAvatar from "@mui/material/ListItemAvatar";
@@ -138,6 +140,11 @@ export function CharactersList() {
                 secondary={character.notes ?? undefined}
               />
             </ListItemButton>
+            <Tooltip title="View character sheet / link D&D Beyond">
+              <IconButton component={Link} href={`/characters/${character.id}`} sx={{ mr: 1 }}>
+                <LinkIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </ListItem>
         ))}
       </List>
