@@ -68,6 +68,17 @@ jobs:
         run: docker image prune -f
 
       - name: Health check
+        # A single curl right after `up -d` is racy — the container can take
+        # longer than a flat sleep to finish booting Next.js, which reads as
+        # a deploy failure even though the deploy itself succeeded (observed
+        # repeatedly). Retry for up to ~30s instead of a one-shot check.
         run: |
-          sleep 5
-          curl -sf http://localhost:3000/ -o /dev/null
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:3000/ -o /dev/null; then
+              echo "Healthy after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::Health check failed after 10 attempts (~30s)"
+          exit 1
