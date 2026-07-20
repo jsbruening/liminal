@@ -1053,8 +1053,8 @@ export function Stage({ campaignId }: { campaignId: string }) {
 
   return (
     <Box
-      className="liminal-stage-viewport"
       sx={{
+        height: "100dvh",
         overflow: "hidden",
         bgcolor: "#0a0b0d",
         display: "flex",
