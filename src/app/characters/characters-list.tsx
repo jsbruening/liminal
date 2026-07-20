@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -8,6 +9,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemAvatar from "@mui/material/ListItemAvatar";
+import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
@@ -94,7 +96,7 @@ export function CharactersList() {
 
       <List>
         {characters?.map((character) => (
-          <ListItem key={character.id} divider>
+          <ListItem key={character.id} divider disablePadding sx={{ pl: 2 }}>
             <ListItemAvatar>
               <Tooltip title="Click to change avatar">
                 <Box
@@ -130,10 +132,12 @@ export function CharactersList() {
                 style={{ display: "none" }}
               />
             </ListItemAvatar>
-            <ListItemText
-              primary={character.name}
-              secondary={character.notes ?? undefined}
-            />
+            <ListItemButton component={Link} href={`/characters/${character.id}`}>
+              <ListItemText
+                primary={character.name}
+                secondary={character.notes ?? undefined}
+              />
+            </ListItemButton>
           </ListItem>
         ))}
       </List>

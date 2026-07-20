@@ -92,6 +92,14 @@ model Character {
     tokenUrl String? // image used as the map token
     notes    String?
 
+    // D&D Beyond import (see src/server/ddb.ts) — all nullable, unset until
+    // the player links a character. ddbCharacterId is the numeric ID parsed
+    // out of ddbUrl; re-sync uses it directly rather than re-parsing the URL.
+    ddbUrl         String?
+    ddbCharacterId String?
+    ddbSheet       Json?
+    ddbImportedAt  DateTime?
+
     ownerId String
     owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 

@@ -22,6 +22,13 @@ export async function requireMember(db: typeof Db, campaignId: string, userId: s
   return campaign;
 }
 
+export async function requireOwnedCharacter(db: typeof Db, characterId: string, userId: string) {
+  const character = await db.character.findUnique({ where: { id: characterId } });
+  if (!character) throw new TRPCError({ code: "NOT_FOUND" });
+  if (character.ownerId !== userId) throw new TRPCError({ code: "FORBIDDEN" });
+  return character;
+}
+
 // A token can always be moved by the campaign's GM or the owner of the
 // character it represents; additional users can be granted control via
 // TokenController (see schema.prisma for why those defaults aren't rows).
