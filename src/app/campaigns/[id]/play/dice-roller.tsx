@@ -7,9 +7,15 @@ import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { api } from "~/trpc/react";
+import type { DdbCharacterSheet } from "~/server/ddb";
 
 export const DICE_SIZES = [4, 6, 8, 10, 12, 20] as const;
 type DieSize = (typeof DICE_SIZES)[number];
+
+export type RollCategory = {
+  type: "skill" | "save" | "attack" | "spellAttack" | "spellDamage" | "free";
+  sourceName: string;
+};
 
 export type DiceRollEntry = {
   id: string;
@@ -17,7 +23,14 @@ export type DiceRollEntry = {
   notation: string;
   result: number;
   modifier: number;
+  category: RollCategory;
 };
+
+export interface RollableCharacter {
+  id: string;
+  name: string;
+  ddbSheet: unknown;
+}
 
 const CONTAINER_ID = "liminal-dice-box";
 const SHOW_MS = 3500;
@@ -35,12 +48,62 @@ function totalDiceCount(counts: Counts) {
   return DICE_SIZES.reduce((s, d) => s + counts[d], 0);
 }
 
+// Parses damage-dice display strings produced by ddb.ts's computeAttacks
+// ("1d6 +4" style) and open5e.ts's damage_roll/higherLevelDamage (plain
+// "8d6", no modifier) into a rollable dice group + flat modifier.
+function parseDamageDice(damage: string): { notation: string; modifier: number } {
+  const match = /^(\d+d\d+)\s*([+-]\s*\d+)?$/.exec(damage.trim());
+  if (!match?.[1]) return { notation: damage.trim(), modifier: 0 };
+  return { notation: match[1], modifier: match[2] ? Number(match[2].replace(/\s+/g, "")) : 0 };
+}
+
+// A stored ddbSheet is a JSON snapshot from whenever the character was last
+// imported/re-synced — a character imported before spell support shipped
+// has no spells/spellSlots/spellcastingAbility fields at all until the
+// player re-syncs. Default the newer fields so an old snapshot doesn't
+// crash the whole page; the fix for the player is to hit Re-sync.
+function normalizeSheet(raw: unknown): DdbCharacterSheet | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const s = raw as DdbCharacterSheet;
+  return {
+    ...s,
+    attacks: s.attacks ?? [],
+    spells: s.spells ?? [],
+    spellSlots: s.spellSlots ?? [],
+    spellcastingAbility: s.spellcastingAbility ?? null,
+    spellSaveDc: s.spellSaveDc ?? null,
+    spellAttackBonus: s.spellAttackBonus ?? null,
+  };
+}
+
+const sectionHeaderSx = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const,
+  color: "primary.main",
+  mt: 1,
+  mb: 0.5,
+};
+
+const rollRowSx = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  py: 0.4,
+  cursor: "pointer",
+  borderRadius: "4px",
+  px: 0.5,
+  "&:hover": { bgcolor: "rgba(255,255,255,0.06)" },
+};
+
 interface Props {
   sceneId: string;
   rolls: DiceRollEntry[];
+  characters: RollableCharacter[];
 }
 
-export function DiceRoller({ sceneId, rolls }: Props) {
+export function DiceRoller({ sceneId, rolls, characters }: Props) {
   const [counts, setCounts] = useState<Counts>(zeroCounts());
   const [modifier, setModifier] = useState(0);
   const [rolling, setRolling] = useState(false);
@@ -58,6 +121,14 @@ export function DiceRoller({ sceneId, rolls }: Props) {
   const pendingModRef = useRef(0);
 
   const rollDice = api.scene.rollDice.useMutation();
+
+  const charactersWithSheet = characters.filter((c) => c.ddbSheet != null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const selectedCharacter =
+    charactersWithSheet.find((c) => c.id === selectedCharacterId) ?? charactersWithSheet[0] ?? null;
+  const sheet = normalizeSheet(selectedCharacter?.ddbSheet);
+
+  const [tab, setTab] = useState<"sheet" | "free">("sheet");
 
   useEffect(() => {
     setPortalTarget(document.body);
@@ -147,33 +218,38 @@ export function DiceRoller({ sceneId, rolls }: Props) {
     setCounts((c) => ({ ...c, [die]: Math.max(c[die] - 1, 0) }));
   }
 
-  async function handleRoll() {
+  // Core roll pipeline, shared by the free-form tray and every sheet-driven
+  // roll button. rollGroups is an array of dice-box group strings (e.g.
+  // ["1d20"] or ["2d6","1d20"] for the free tray's multi-die-type case —
+  // dice-box requires an array, not a joined string, for mixed rolls).
+  async function performRoll(rollGroups: string[], mod: number, category: RollCategory) {
     const box = diceBoxRef.current;
-    const notation = buildNotation(counts);
-    if (rolling || !box || !notation) return;
+    if (rolling || !box || rollGroups.length === 0) return;
 
     if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
     box.clear();
     setRolling(true);
     setRollResult(null);
-    pendingModRef.current = modifier;
-    setCounts(zeroCounts());
+    pendingModRef.current = mod;
 
-    const rollGroups = DICE_SIZES.filter((d) => counts[d] > 0).map((d) => `${counts[d]}d${d}`);
+    const notation = rollGroups.join("+");
 
     try {
       const results = await box.roll(rollGroups);
-      if (!results?.length) { setRolling(false); return; }
+      if (!results?.length) {
+        setRolling(false);
+        return;
+      }
 
-      const mod = pendingModRef.current;
+      const m = pendingModRef.current;
       const diceTotal = results.reduce((s, r) => s + r.value, 0);
-      const total = diceTotal + mod;
+      const total = diceTotal + m;
       const isCritNat20 = results.length === 1 && results[0]?.sides === 20 && results[0]?.value === 20;
       const isNat1 = results.length === 1 && results[0]?.sides === 20 && results[0]?.value === 1;
 
-      setRollResult({ notation, total, modifier: mod, isCritNat20, isNat1 });
+      setRollResult({ notation, total, modifier: m, isCritNat20, isNat1 });
       setRolling(false);
-      rollDice.mutate({ sceneId, notation, result: total, modifier: mod });
+      rollDice.mutate({ sceneId, notation, result: total, modifier: m, category });
 
       clearTimerRef.current = setTimeout(() => {
         box.clear();
@@ -184,7 +260,19 @@ export function DiceRoller({ sceneId, rolls }: Props) {
     }
   }
 
-  const notation = buildNotation(counts);
+  function handleFreeRoll() {
+    const rollGroups = DICE_SIZES.filter((d) => counts[d] > 0).map((d) => `${counts[d]}d${d}`);
+    if (rollGroups.length === 0) return;
+    const mod = modifier;
+    setCounts(zeroCounts());
+    void performRoll(rollGroups, mod, { type: "free", sourceName: "Free Roll" });
+  }
+
+  function signed(n: number) {
+    return n >= 0 ? `+${n}` : String(n);
+  }
+
+  const freeNotation = buildNotation(counts);
   const totalDice = totalDiceCount(counts);
   const canRoll = totalDice > 0 && !rolling;
 
@@ -263,6 +351,7 @@ export function DiceRoller({ sceneId, rolls }: Props) {
           backdropFilter: "blur(10px)",
           boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
           minWidth: 264,
+          maxWidth: 300,
         }}
       >
         {/* Roll log */}
@@ -300,10 +389,13 @@ export function DiceRoller({ sceneId, rolls }: Props) {
                     {roll.name}
                   </Typography>
                   <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: entryColor, lineHeight: 1.35 }}>
-                    {roll.notation}
-                    {roll.modifier !== 0 && (roll.modifier > 0 ? ` +${roll.modifier}` : ` ${roll.modifier}`)}
+                    {roll.category.sourceName}
                     {" → "}
                     <span style={{ fontSize: 14 }}>{total}</span>
+                    <Box component="span" sx={{ fontSize: 10, color: "rgba(255,255,255,0.35)", ml: 0.5 }}>
+                      ({roll.notation}
+                      {roll.modifier !== 0 ? (roll.modifier > 0 ? ` +${roll.modifier}` : ` ${roll.modifier}`) : ""})
+                    </Box>
                   </Typography>
                 </Box>
               );
@@ -311,158 +403,341 @@ export function DiceRoller({ sceneId, rolls }: Props) {
           </Box>
         )}
 
-        {/* Die selector — tap to add, tap the − badge to remove */}
-        <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
-          {DICE_SIZES.map((sides) => {
-            const count = counts[sides];
-            const active = count > 0;
-            return (
-              <Tooltip key={sides} title={`Tap to add d${sides}`} placement="top">
+        {/* Sheet / Free tabs — only shown if the player has a linked character */}
+        {charactersWithSheet.length > 0 && (
+          <>
+            <Stack direction="row" spacing={1} sx={{ mb: 0.75 }}>
+              {(["sheet", "free"] as const).map((t) => (
                 <Box
-                  onClick={() => increment(sides)}
+                  key={t}
+                  onClick={() => setTab(t)}
                   sx={{
-                    position: "relative",
-                    width: 34,
-                    height: 34,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: "7px",
-                    border: `1px solid ${active ? "rgba(100,180,160,0.7)" : "rgba(255,255,255,0.14)"}`,
-                    bgcolor: active ? "rgba(100,180,160,0.12)" : "transparent",
-                    cursor: "pointer",
                     fontSize: 11,
                     fontWeight: 700,
-                    color: active ? "rgba(140,210,190,0.95)" : "rgba(255,255,255,0.55)",
-                    userSelect: "none",
-                    transition: "all 0.1s",
-                    "&:hover": {
-                      borderColor: "rgba(100,180,160,0.6)",
-                      color: "rgba(140,210,190,0.9)",
-                      bgcolor: "rgba(100,180,160,0.08)",
-                    },
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    px: 1,
+                    py: 0.25,
+                    borderRadius: "4px",
+                    color: tab === t ? "rgba(140,210,190,0.95)" : "rgba(255,255,255,0.4)",
+                    bgcolor: tab === t ? "rgba(100,180,160,0.12)" : "transparent",
+                    "&:hover": { color: "rgba(140,210,190,0.9)" },
                   }}
                 >
-                  d{sides}
-                  {count > 1 && (
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        top: -5,
-                        right: -5,
-                        width: 14,
-                        height: 14,
-                        borderRadius: "50%",
-                        bgcolor: "rgba(100,180,160,0.9)",
-                        color: "#0a0b0d",
-                        fontSize: 9,
-                        fontWeight: 800,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        lineHeight: 1,
-                      }}
-                    >
-                      {count}
-                    </Box>
-                  )}
-                  {active && (
-                    <Box
-                      onClick={(e) => { e.stopPropagation(); decrement(sides); }}
-                      sx={{
-                        position: "absolute",
-                        bottom: -6,
-                        right: -6,
-                        width: 16,
-                        height: 16,
-                        borderRadius: "50%",
-                        bgcolor: "rgba(30,32,36,0.95)",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 12,
-                        fontWeight: 800,
-                        lineHeight: 1,
-                        color: "rgba(255,255,255,0.7)",
-                        "&:hover": { color: "white", borderColor: "rgba(255,255,255,0.4)" },
-                      }}
-                    >
-                      −
-                    </Box>
-                  )}
+                  {t === "sheet" ? "Sheet" : "Free"}
                 </Box>
-              </Tooltip>
-            );
-          })}
-        </Stack>
+              ))}
+              {tab === "sheet" && charactersWithSheet.length > 1 && (
+                <Box
+                  component="select"
+                  value={selectedCharacter?.id}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedCharacterId(e.target.value)}
+                  sx={{
+                    ml: "auto",
+                    fontSize: 10,
+                    bgcolor: "transparent",
+                    color: "rgba(255,255,255,0.6)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {charactersWithSheet.map((c) => (
+                    <option key={c.id} value={c.id} style={{ background: "#13151a" }}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Box>
+              )}
+            </Stack>
 
-        {/* Modifier + Roll */}
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
-          {/* Modifier stepper */}
-          <Stack direction="row" spacing={0.25} sx={{ alignItems: "center" }}>
-            <Box
-              onClick={() => setModifier((m) => m - 1)}
-              sx={{
-                width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center",
-                borderRadius: "4px", border: "1px solid rgba(255,255,255,0.12)",
-                cursor: "pointer", fontSize: 14, lineHeight: 1, color: "rgba(255,255,255,0.4)",
-                "&:hover": { color: "white" },
-              }}
-            >
-              −
-            </Box>
-            <Typography
-              sx={{
-                fontSize: 11, fontWeight: 700, minWidth: 26, textAlign: "center",
-                color: modifier !== 0 ? "rgba(140,210,190,0.9)" : "rgba(255,255,255,0.35)",
-              }}
-            >
-              {modifier >= 0 ? `+${modifier}` : modifier}
-            </Typography>
-            <Box
-              onClick={() => setModifier((m) => m + 1)}
-              sx={{
-                width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center",
-                borderRadius: "4px", border: "1px solid rgba(255,255,255,0.12)",
-                cursor: "pointer", fontSize: 14, lineHeight: 1, color: "rgba(255,255,255,0.4)",
-                "&:hover": { color: "white" },
-              }}
-            >
-              +
-            </Box>
-          </Stack>
+            {tab === "sheet" && sheet && (
+              <Box sx={{ maxHeight: 220, overflowY: "auto", mb: 1 }}>
+                <Typography sx={sectionHeaderSx}>Saves</Typography>
+                {(Object.entries(sheet.savingThrows) as [string, { modifier: number; proficient: boolean }][]).map(
+                  ([ability, save]) => (
+                    <Box
+                      key={ability}
+                      sx={rollRowSx}
+                      onClick={() =>
+                        void performRoll(["1d20"], save.modifier, {
+                          type: "save",
+                          sourceName: `${ability.toUpperCase()} Save`,
+                        })
+                      }
+                    >
+                      <Typography sx={{ fontSize: 12 }}>{ability.toUpperCase()} Save</Typography>
+                      <Typography sx={{ fontSize: 12, fontWeight: 700, color: "rgba(140,210,190,0.9)" }}>
+                        {signed(save.modifier)}
+                      </Typography>
+                    </Box>
+                  ),
+                )}
 
-          {/* Roll button */}
-          <Box
-            onClick={canRoll ? handleRoll : undefined}
-            sx={{
-              flex: 1,
-              height: 28,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: "6px",
-              border: `1px solid ${canRoll ? "rgba(100,180,160,0.6)" : "rgba(255,255,255,0.08)"}`,
-              bgcolor: canRoll ? "rgba(100,180,160,0.15)" : "rgba(255,255,255,0.04)",
-              cursor: canRoll ? "pointer" : "default",
-              transition: "all 0.1s",
-              "&:hover": canRoll ? { bgcolor: "rgba(100,180,160,0.22)", borderColor: "rgba(100,180,160,0.8)" } : {},
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: canRoll ? "rgba(140,210,190,0.95)" : "rgba(255,255,255,0.2)",
-                letterSpacing: "0.04em",
-                userSelect: "none",
-              }}
-            >
-              {rolling ? "Rolling…" : canRoll ? `Roll ${notation}` : "Roll"}
-            </Typography>
-          </Box>
-        </Stack>
+                <Typography sx={sectionHeaderSx}>Skills</Typography>
+                {sheet.skills.map((s) => (
+                  <Box
+                    key={s.name}
+                    sx={rollRowSx}
+                    onClick={() => void performRoll(["1d20"], s.modifier, { type: "skill", sourceName: s.name })}
+                  >
+                    <Typography sx={{ fontSize: 12 }}>{s.name}</Typography>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, color: "rgba(140,210,190,0.9)" }}>
+                      {signed(s.modifier)}
+                    </Typography>
+                  </Box>
+                ))}
+
+                {sheet.attacks.length > 0 && (
+                  <>
+                    <Typography sx={sectionHeaderSx}>Attacks</Typography>
+                    {sheet.attacks.map((a, i) => (
+                      <Box key={`${a.name}-${i}`} sx={{ py: 0.25 }}>
+                        <Typography sx={{ fontSize: 12, mb: 0.25 }}>{a.name}</Typography>
+                        <Stack direction="row" spacing={1}>
+                          {a.toHit != null && (
+                            <Box
+                              sx={{ ...rollRowSx, flex: 1 }}
+                              onClick={() =>
+                                void performRoll(["1d20"], a.toHit!, { type: "attack", sourceName: `${a.name} — Attack` })
+                              }
+                            >
+                              <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>
+                                Attack {signed(a.toHit)}
+                              </Typography>
+                            </Box>
+                          )}
+                          {a.damage && (
+                            <Box
+                              sx={{ ...rollRowSx, flex: 1 }}
+                              onClick={() => {
+                                const { notation, modifier: dmgMod } = parseDamageDice(a.damage!);
+                                void performRoll([notation], dmgMod, {
+                                  type: "attack",
+                                  sourceName: `${a.name} — Damage`,
+                                });
+                              }}
+                            >
+                              <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>
+                                Dmg {a.damage}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Stack>
+                      </Box>
+                    ))}
+                  </>
+                )}
+
+                {sheet.spells.length > 0 && (
+                  <>
+                    <Typography sx={sectionHeaderSx}>Spells</Typography>
+                    {sheet.spells.map((sp) => (
+                      <Box key={sp.name} sx={{ py: 0.25 }}>
+                        <Typography sx={{ fontSize: 12, mb: 0.25 }}>{sp.name}</Typography>
+                        {(sp.attackRoll || sp.damageRoll) && (
+                          <Stack direction="row" spacing={1}>
+                            {sp.attackRoll && sheet.spellAttackBonus != null && (
+                              <Box
+                                sx={{ ...rollRowSx, flex: 1 }}
+                                onClick={() =>
+                                  void performRoll(["1d20"], sheet.spellAttackBonus!, {
+                                    type: "spellAttack",
+                                    sourceName: `${sp.name} — Attack`,
+                                  })
+                                }
+                              >
+                                <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>
+                                  Attack {signed(sheet.spellAttackBonus)}
+                                </Typography>
+                              </Box>
+                            )}
+                            {sp.damageRoll && (
+                              <Box
+                                sx={{ ...rollRowSx, flex: 1 }}
+                                onClick={() => {
+                                  const { notation, modifier: dmgMod } = parseDamageDice(sp.damageRoll!);
+                                  void performRoll([notation], dmgMod, {
+                                    type: "spellDamage",
+                                    sourceName: `${sp.name} — Damage`,
+                                  });
+                                }}
+                              >
+                                <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>
+                                  Dmg {sp.damageRoll}
+                                </Typography>
+                              </Box>
+                            )}
+                          </Stack>
+                        )}
+                      </Box>
+                    ))}
+                  </>
+                )}
+              </Box>
+            )}
+          </>
+        )}
+
+        {/* Free-form tray — always available; the only UI shown if no linked character */}
+        {(tab === "free" || charactersWithSheet.length === 0) && (
+          <>
+            <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
+              {DICE_SIZES.map((sides) => {
+                const count = counts[sides];
+                const active = count > 0;
+                return (
+                  <Tooltip key={sides} title={`Tap to add d${sides}`} placement="top">
+                    <Box
+                      onClick={() => increment(sides)}
+                      sx={{
+                        position: "relative",
+                        width: 34,
+                        height: 34,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: "7px",
+                        border: `1px solid ${active ? "rgba(100,180,160,0.7)" : "rgba(255,255,255,0.14)"}`,
+                        bgcolor: active ? "rgba(100,180,160,0.12)" : "transparent",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: active ? "rgba(140,210,190,0.95)" : "rgba(255,255,255,0.55)",
+                        userSelect: "none",
+                        transition: "all 0.1s",
+                        "&:hover": {
+                          borderColor: "rgba(100,180,160,0.6)",
+                          color: "rgba(140,210,190,0.9)",
+                          bgcolor: "rgba(100,180,160,0.08)",
+                        },
+                      }}
+                    >
+                      d{sides}
+                      {count > 1 && (
+                        <Box
+                          sx={{
+                            position: "absolute",
+                            top: -5,
+                            right: -5,
+                            width: 14,
+                            height: 14,
+                            borderRadius: "50%",
+                            bgcolor: "rgba(100,180,160,0.9)",
+                            color: "#0a0b0d",
+                            fontSize: 9,
+                            fontWeight: 800,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                          }}
+                        >
+                          {count}
+                        </Box>
+                      )}
+                      {active && (
+                        <Box
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            decrement(sides);
+                          }}
+                          sx={{
+                            position: "absolute",
+                            bottom: -6,
+                            right: -6,
+                            width: 16,
+                            height: 16,
+                            borderRadius: "50%",
+                            bgcolor: "rgba(30,32,36,0.95)",
+                            border: "1px solid rgba(255,255,255,0.2)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 12,
+                            fontWeight: 800,
+                            lineHeight: 1,
+                            color: "rgba(255,255,255,0.7)",
+                            "&:hover": { color: "white", borderColor: "rgba(255,255,255,0.4)" },
+                          }}
+                        >
+                          −
+                        </Box>
+                      )}
+                    </Box>
+                  </Tooltip>
+                );
+              })}
+            </Stack>
+
+            {/* Modifier + Roll */}
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+              {/* Modifier stepper */}
+              <Stack direction="row" spacing={0.25} sx={{ alignItems: "center" }}>
+                <Box
+                  onClick={() => setModifier((m) => m - 1)}
+                  sx={{
+                    width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center",
+                    borderRadius: "4px", border: "1px solid rgba(255,255,255,0.12)",
+                    cursor: "pointer", fontSize: 14, lineHeight: 1, color: "rgba(255,255,255,0.4)",
+                    "&:hover": { color: "white" },
+                  }}
+                >
+                  −
+                </Box>
+                <Typography
+                  sx={{
+                    fontSize: 11, fontWeight: 700, minWidth: 26, textAlign: "center",
+                    color: modifier !== 0 ? "rgba(140,210,190,0.9)" : "rgba(255,255,255,0.35)",
+                  }}
+                >
+                  {modifier >= 0 ? `+${modifier}` : modifier}
+                </Typography>
+                <Box
+                  onClick={() => setModifier((m) => m + 1)}
+                  sx={{
+                    width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center",
+                    borderRadius: "4px", border: "1px solid rgba(255,255,255,0.12)",
+                    cursor: "pointer", fontSize: 14, lineHeight: 1, color: "rgba(255,255,255,0.4)",
+                    "&:hover": { color: "white" },
+                  }}
+                >
+                  +
+                </Box>
+              </Stack>
+
+              {/* Roll button */}
+              <Box
+                onClick={canRoll ? handleFreeRoll : undefined}
+                sx={{
+                  flex: 1,
+                  height: 28,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "6px",
+                  border: `1px solid ${canRoll ? "rgba(100,180,160,0.6)" : "rgba(255,255,255,0.08)"}`,
+                  bgcolor: canRoll ? "rgba(100,180,160,0.15)" : "rgba(255,255,255,0.04)",
+                  cursor: canRoll ? "pointer" : "default",
+                  transition: "all 0.1s",
+                  "&:hover": canRoll ? { bgcolor: "rgba(100,180,160,0.22)", borderColor: "rgba(100,180,160,0.8)" } : {},
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: canRoll ? "rgba(140,210,190,0.95)" : "rgba(255,255,255,0.2)",
+                    letterSpacing: "0.04em",
+                    userSelect: "none",
+                  }}
+                >
+                  {rolling ? "Rolling…" : canRoll ? `Roll ${freeNotation}` : "Roll"}
+                </Typography>
+              </Box>
+            </Stack>
+          </>
+        )}
       </Box>
     </>
   );

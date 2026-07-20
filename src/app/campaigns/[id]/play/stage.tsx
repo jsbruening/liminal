@@ -34,7 +34,7 @@ import { useRoomEvents } from "~/lib/use-room-events";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { NpcLibraryPanel } from "../npc-library-panel";
 import { colorForKey, initialsFor, StatBlockDrawer, type StatBlock } from "../token-visuals";
-import { DiceRoller, type DiceRollEntry } from "./dice-roller";
+import { DiceRoller, type DiceRollEntry, type RollCategory } from "./dice-roller";
 
 type Token = RouterOutputs["token"]["listForScene"][number];
 type Character = RouterOutputs["campaign"]["listMemberCharacters"][number];
@@ -73,7 +73,14 @@ type ExternalDrag =
 
 type PingPayload = { x: number; y: number; userId: string; name: string };
 type Ping = PingPayload & { id: string };
-type DiceEventPayload = { userId: string; name: string; notation: string; result: number; modifier: number };
+type DiceEventPayload = {
+  userId: string;
+  name: string;
+  notation: string;
+  result: number;
+  modifier: number;
+  category: RollCategory;
+};
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
@@ -121,6 +128,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
     { campaignId },
     { enabled: !!campaign?.isGm },
   );
+  const { data: myCharacters } = api.campaign.listMyCharacters.useQuery({ campaignId });
   const { data: allScenes } = api.scene.listForCampaign.useQuery(
     { campaignId },
     { enabled: !!campaign?.isGm },
@@ -1667,7 +1675,7 @@ export function Stage({ campaignId }: { campaignId: string }) {
           </Box>
         </Box>
 
-        <DiceRoller sceneId={activeSceneId} rolls={diceRolls} />
+        <DiceRoller sceneId={activeSceneId} rolls={diceRolls} characters={myCharacters ?? []} />
 
         {externalDragPos && (
           <Box

@@ -15,6 +15,25 @@ import { api } from "~/trpc/react";
 import type { DdbCharacterSheet } from "~/server/ddb";
 import { CharacterSheet } from "./character-sheet";
 
+// A stored ddbSheet is a JSON snapshot from whenever the character was last
+// imported/re-synced — a character imported before spell support shipped
+// has no spells/spellSlots/spellcastingAbility fields at all until the
+// player re-syncs. Default the newer fields so an old snapshot doesn't
+// crash the page.
+function normalizeSheet(raw: unknown): DdbCharacterSheet | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as DdbCharacterSheet;
+  return {
+    ...s,
+    attacks: s.attacks ?? [],
+    spells: s.spells ?? [],
+    spellSlots: s.spellSlots ?? [],
+    spellcastingAbility: s.spellcastingAbility ?? null,
+    spellSaveDc: s.spellSaveDc ?? null,
+    spellAttackBonus: s.spellAttackBonus ?? null,
+  };
+}
+
 function relativeTime(date: Date) {
   const seconds = Math.round((date.getTime() - Date.now()) / 1000);
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
@@ -61,7 +80,7 @@ export function CharacterDetail({ characterId }: { characterId: string }) {
   if (!character) return null;
 
   const activeError = importFromDdb.error ?? resync.error ?? unlinkDdb.error;
-  const sheet = character.ddbSheet as DdbCharacterSheet | null;
+  const sheet = normalizeSheet(character.ddbSheet);
 
   return (
     <Box>

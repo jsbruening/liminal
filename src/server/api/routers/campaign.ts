@@ -35,6 +35,19 @@ export const campaignRouter = createTRPCRouter({
       return links.map((l) => l.character);
     }),
 
+  // Any campaign member: their own character(s) in this campaign (with
+  // ddbSheet) — used by the in-session dice roller to know what to show.
+  listMyCharacters: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await requireMember(ctx.db, input.campaignId, ctx.session.user.id);
+      const links = await ctx.db.characterCampaign.findMany({
+        where: { campaignId: input.campaignId, character: { ownerId: ctx.session.user.id } },
+        include: { character: true },
+      });
+      return links.map((l) => l.character);
+    }),
+
   // GM-only: add one of the GM's own characters to their own campaign's
   // roster, bypassing the join-request flow (which is for other players —
   // "Browse campaigns" deliberately excludes campaigns the user already GMs,

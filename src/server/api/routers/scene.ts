@@ -148,6 +148,10 @@ export const sceneRouter = createTRPCRouter({
         notation: z.string().min(1).max(80),
         result: z.number().int().min(0),
         modifier: z.number().int(),
+        category: z.object({
+          type: z.enum(["skill", "save", "attack", "spellAttack", "spellDamage", "free"]),
+          sourceName: z.string().max(60),
+        }),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -161,6 +165,7 @@ export const sceneRouter = createTRPCRouter({
         notation: input.notation,
         result: input.result,
         modifier: input.modifier,
+        category: input.category,
       });
       return { sent: true };
     }),
