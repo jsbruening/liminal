@@ -6,14 +6,23 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { importSrdMonster, searchSrdMonsters } from "~/server/srd";
 
 export const npcTemplateRouter = createTRPCRouter({
+  // Sorted by most-recently-touched first (last time it was placed as a
+  // token, falling back to when it was added if never placed) — keeps a
+  // long-running campaign's bestiary usable without deleting anything.
   list: protectedProcedure
     .input(z.object({ campaignId: z.string() }))
     .query(async ({ ctx, input }) => {
       await requireGm(ctx.db, input.campaignId, ctx.session.user.id);
-      return ctx.db.npcTemplate.findMany({
+      const templates = await ctx.db.npcTemplate.findMany({
         where: { campaignId: input.campaignId },
-        orderBy: { createdAt: "asc" },
+        include: { tokens: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 } },
       });
+      return templates
+        .map(({ tokens, ...template }) => ({
+          ...template,
+          lastUsedAt: tokens[0]?.createdAt ?? template.createdAt,
+        }))
+        .sort((a, b) => b.lastUsedAt.getTime() - a.lastUsedAt.getTime());
     }),
 
   create: protectedProcedure

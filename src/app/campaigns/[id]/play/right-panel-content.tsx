@@ -13,8 +13,10 @@ import TrackChangesOutlinedIcon from "@mui/icons-material/TrackChangesOutlined";
 import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CasinoOutlinedIcon from "@mui/icons-material/CasinoOutlined";
+import CasinoIcon from "@mui/icons-material/Casino";
 
 import type { DdbCharacterSheet } from "~/server/ddb";
+import { DiceThemeDialog } from "~/app/_components/dice-theme-dialog";
 import { useDiceEngine, type DiceRollEntry, type RollCategory } from "./use-dice-engine";
 
 export const DICE_SIZES = [4, 6, 8, 10, 12, 20] as const;
@@ -137,6 +139,7 @@ export function RightPanelContent({ rolls, characters, tab: controlledTab, onTab
 
   const [counts, setCounts] = useState<Counts>(zeroCounts());
   const [modifier, setModifier] = useState(0);
+  const [diceThemeOpen, setDiceThemeOpen] = useState(false);
 
   function increment(die: DieSize) {
     setCounts((c) => ({ ...c, [die]: Math.min(c[die] + 1, 9) }));
@@ -420,6 +423,23 @@ export function RightPanelContent({ rolls, characters, tab: controlledTab, onTab
 
         {tab === "dice" && (
           <Box>
+            <Stack direction="row" sx={{ justifyContent: "flex-end", mb: 1 }}>
+              <Box
+                onClick={() => setDiceThemeOpen(true)}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.4)",
+                  "&:hover": { color: "rgba(255,255,255,0.75)" },
+                }}
+              >
+                <CasinoIcon sx={{ fontSize: 14 }} />
+                Dice style
+              </Box>
+            </Stack>
             <Stack direction="row" spacing={0.5} sx={{ mb: 1.5, flexWrap: "wrap", rowGap: 0.5 }}>
               {DICE_SIZES.map((sides) => {
                 const count = counts[sides];
@@ -621,6 +641,7 @@ export function RightPanelContent({ rolls, characters, tab: controlledTab, onTab
           </Box>
         )}
       </Box>
+      <DiceThemeDialog open={diceThemeOpen} onClose={() => setDiceThemeOpen(false)} />
     </Box>
   );
 }

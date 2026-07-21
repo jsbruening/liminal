@@ -51,6 +51,10 @@ export function NpcLibraryPanel({
   });
 
   const [npcNameInput, setNpcNameInput] = useState("");
+  const [filterQuery, setFilterQuery] = useState("");
+  const filteredNpcTemplates = npcTemplates?.filter((npc) =>
+    npc.name.toLowerCase().includes(filterQuery.trim().toLowerCase()),
+  );
   const [srdQuery, setSrdQuery] = useState("");
   const srdSearch = api.npcTemplate.searchSrd.useQuery(
     { campaignId, query: srdQuery },
@@ -180,6 +184,25 @@ export function NpcLibraryPanel({
         <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, flex: 1, gap: 3, minHeight: 0 }}>
           {/* Left: NPC list */}
           <Box sx={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
+            {npcTemplates && npcTemplates.length > 0 && (
+              <TextField
+                size="small"
+                placeholder="Filter your bestiary…"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                fullWidth
+                sx={{ mb: 1.5 }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 16, color: "rgba(255,255,255,0.3)" }} />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+            )}
             {npcTemplates?.length === 0 && (
               <Box sx={{ py: 6, textAlign: "center" }}>
                 <Typography sx={{ color: "rgba(255,255,255,0.25)", fontSize: 14 }}>
@@ -190,8 +213,13 @@ export function NpcLibraryPanel({
                 </Typography>
               </Box>
             )}
+            {npcTemplates && npcTemplates.length > 0 && filteredNpcTemplates?.length === 0 && (
+              <Typography sx={{ color: "rgba(255,255,255,0.25)", fontSize: 13, py: 2, textAlign: "center" }}>
+                No NPCs match &ldquo;{filterQuery}&rdquo;.
+              </Typography>
+            )}
             <Stack spacing={1}>
-              {npcTemplates?.map((npc) => {
+              {filteredNpcTemplates?.map((npc) => {
                 const isSelected = selectedNpcId === npc.id;
                 return (
                   <Box
@@ -331,8 +359,28 @@ export function NpcLibraryPanel({
   // ── Sidebar layout (original, used on stage) ──────────────────────────────
   return (
     <Box>
+      {npcTemplates && npcTemplates.length > 3 && (
+        <TextField
+          size="small"
+          placeholder="Filter…"
+          value={filterQuery}
+          onChange={(e) => setFilterQuery(e.target.value)}
+          fullWidth
+          sx={{ mb: 1 }}
+          slotProps={{
+            htmlInput: { style: { fontSize: 12.5 } },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 14, color: "rgba(255,255,255,0.3)" }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+      )}
       <Stack spacing={0.75} sx={{ mb: 1.5 }}>
-        {npcTemplates?.map((npc) => (
+        {filteredNpcTemplates?.map((npc) => (
           <Stack
             key={npc.id}
             direction="row"
@@ -420,6 +468,11 @@ export function NpcLibraryPanel({
         {npcTemplates?.length === 0 && (
           <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
             No NPCs yet — add one below or search the SRD.
+          </Typography>
+        )}
+        {npcTemplates && npcTemplates.length > 0 && filteredNpcTemplates?.length === 0 && (
+          <Typography sx={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+            No NPCs match &ldquo;{filterQuery}&rdquo;.
           </Typography>
         )}
       </Stack>

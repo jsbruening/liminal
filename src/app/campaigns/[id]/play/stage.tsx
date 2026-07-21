@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import CasinoOutlinedIcon from "@mui/icons-material/CasinoOutlined";
 import CenterFocusStrongIcon from "@mui/icons-material/CenterFocusStrong";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import GroupsIcon from "@mui/icons-material/Groups";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
@@ -186,6 +188,10 @@ export function Stage({ campaignId }: { campaignId: string }) {
   // separate Fab+drawer for the GM's Party panel and another mechanism for
   // Sheet/Dice/Log. "party" only ever appears as an option for the GM.
   const [mobileActiveTab, setMobileActiveTab] = useState<"sheet" | "dice" | "log" | "party" | null>(null);
+
+  // Desktop only — the docked right panel can be collapsed to a slim rail
+  // and reshown; mobile already collapses by default via the bottom tab bar.
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
   const moveToken = api.token.move.useMutation();
   const createToken = api.token.create.useMutation({ onSuccess: refetchAll });
@@ -1637,16 +1643,42 @@ export function Stage({ campaignId }: { campaignId: string }) {
         </Box>
 
         {!isMobile && (
-          <Box
-            sx={{
-              width: 376,
-              flexShrink: 0,
-              borderLeft: "1px solid rgba(255,255,255,0.08)",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <RightPanelContent rolls={diceRolls} characters={myCharacters ?? []} />
+          <Box sx={{ display: "flex", flexShrink: 0 }}>
+            <Tooltip title={rightPanelCollapsed ? "Show panel" : "Collapse panel"} placement="left">
+              <Box
+                onClick={() => setRightPanelCollapsed((c) => !c)}
+                sx={{
+                  width: 18,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  borderLeft: "1px solid rgba(255,255,255,0.08)",
+                  color: "rgba(255,255,255,0.35)",
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.7)" },
+                }}
+              >
+                {rightPanelCollapsed ? (
+                  <ChevronLeftIcon sx={{ fontSize: 16 }} />
+                ) : (
+                  <ChevronRightIcon sx={{ fontSize: 16 }} />
+                )}
+              </Box>
+            </Tooltip>
+            {!rightPanelCollapsed && (
+              <Box
+                sx={{
+                  width: 376,
+                  flexShrink: 0,
+                  borderLeft: "1px solid rgba(255,255,255,0.08)",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <RightPanelContent rolls={diceRolls} characters={myCharacters ?? []} />
+              </Box>
+            )}
           </Box>
         )}
 
