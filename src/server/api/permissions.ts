@@ -2,24 +2,51 @@ import { TRPCError } from "@trpc/server";
 
 import { type db as Db } from "~/server/db";
 
+// True if the user is the campaign owner OR a co-GM. Co-GMs get full
+// in-session GM powers (scenes, tokens, NPCs, join requests) but not
+// ownership-level actions — see requireOwner.
+export async function isGmOrCoGm(db: typeof Db, campaignId: string, userId: string): Promise<boolean> {
+  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) return false;
+  if (campaign.gmId === userId) return true;
+  const member = await db.campaignMember.findUnique({
+    where: { campaignId_userId: { campaignId, userId } },
+  });
+  return member?.isCoGm ?? false;
+}
+
+// Owner or co-GM: the day-to-day "running the campaign" permission level.
 export async function requireGm(db: typeof Db, campaignId: string, userId: string) {
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
-  if (campaign?.gmId !== userId) {
-    throw new TRPCError({ code: "FORBIDDEN" });
+  if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+  if (campaign.gmId !== userId) {
+    const member = await db.campaignMember.findUnique({
+      where: { campaignId_userId: { campaignId, userId } },
+    });
+    if (!member?.isCoGm) throw new TRPCError({ code: "FORBIDDEN" });
   }
   return campaign;
 }
 
-// GM or any approved CampaignMember.
+// Strictly the campaign owner — for actions a co-GM shouldn't be able to do
+// (transferring the GM mantle, promoting/demoting other co-GMs).
+export async function requireOwner(db: typeof Db, campaignId: string, userId: string) {
+  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+  if (campaign.gmId !== userId) throw new TRPCError({ code: "FORBIDDEN" });
+  return campaign;
+}
+
+// Owner/co-GM, or any approved CampaignMember. isGm reflects owner-or-co-GM.
 export async function requireMember(db: typeof Db, campaignId: string, userId: string) {
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
-  if (campaign.gmId === userId) return campaign;
+  if (campaign.gmId === userId) return { campaign, isGm: true };
   const member = await db.campaignMember.findUnique({
     where: { campaignId_userId: { campaignId, userId } },
   });
   if (!member) throw new TRPCError({ code: "FORBIDDEN" });
-  return campaign;
+  return { campaign, isGm: member.isCoGm };
 }
 
 export async function requireOwnedCharacter(db: typeof Db, characterId: string, userId: string) {
@@ -41,7 +68,13 @@ export async function canControlToken(
     where: { id: tokenId },
     include: {
       character: true,
-      scene: { include: { campaign: true } },
+      scene: {
+        include: {
+          campaign: {
+            include: { members: { where: { userId, isCoGm: true }, take: 1 } },
+          },
+        },
+      },
       controllers: true,
     },
   });
@@ -49,6 +82,7 @@ export async function canControlToken(
 
   const allowed =
     token.scene.campaign.gmId === userId ||
+    token.scene.campaign.members.length > 0 ||
     token.character?.ownerId === userId ||
     token.controllers.some((c) => c.controlledById === userId);
 

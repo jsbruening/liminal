@@ -16,6 +16,12 @@ import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
+import CasinoIcon from "@mui/icons-material/Casino";
+import LockIcon from "@mui/icons-material/Lock";
+import Tooltip from "@mui/material/Tooltip";
+
+import { ChangePasswordDialog } from "~/app/_components/change-password-dialog";
+import { DiceThemeDialog } from "~/app/_components/dice-theme-dialog";
 
 const NAV_LINKS = [
   { href: "/campaigns", label: "Campaigns" },
@@ -28,6 +34,8 @@ export function AppNav() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [diceThemeOpen, setDiceThemeOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const navLinks = session?.user?.isAdmin
     ? [...NAV_LINKS, { href: "/admin/users", label: "Admin" }]
@@ -93,6 +101,22 @@ export function AppNav() {
               <MenuItem disabled sx={{ fontSize: 13, opacity: "0.6 !important" }}>
                 {session?.user?.name ?? session?.user?.email}
               </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchor(null);
+                  setDiceThemeOpen(true);
+                }}
+              >
+                Dice style
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchor(null);
+                  setChangePasswordOpen(true);
+                }}
+              >
+                Change password
+              </MenuItem>
               <MenuItem component={Link} href="/api/auth/signout" onClick={() => setMenuAnchor(null)}>
                 Sign out
               </MenuItem>
@@ -133,6 +157,26 @@ export function AppNav() {
               <Typography sx={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>
                 {session?.user?.name ?? session?.user?.email}
               </Typography>
+              <Tooltip title="Dice style">
+                <IconButton
+                  size="small"
+                  onClick={() => setDiceThemeOpen(true)}
+                  sx={{ color: "rgba(255,255,255,0.4)", "&:hover": { color: "rgba(255,255,255,0.72)" } }}
+                  aria-label="Dice style"
+                >
+                  <CasinoIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Change password">
+                <IconButton
+                  size="small"
+                  onClick={() => setChangePasswordOpen(true)}
+                  sx={{ color: "rgba(255,255,255,0.4)", "&:hover": { color: "rgba(255,255,255,0.72)" } }}
+                  aria-label="Change password"
+                >
+                  <LockIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
               <Box
                 component={Link}
                 href="/api/auth/signout"
@@ -149,6 +193,8 @@ export function AppNav() {
           </>
         )}
       </Toolbar>
+      <DiceThemeDialog open={diceThemeOpen} onClose={() => setDiceThemeOpen(false)} />
+      <ChangePasswordDialog open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
     </AppBar>
   );
 }

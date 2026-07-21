@@ -108,12 +108,11 @@ export const tokenRouter = createTRPCRouter({
         where: { id: input.sceneId },
       });
       if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
-      const campaign = await requireMember(
+      const { isGm } = await requireMember(
         ctx.db,
         scene.campaignId,
         ctx.session.user.id,
       );
-      const isGm = campaign.gmId === ctx.session.user.id;
 
       return ctx.db.token.findMany({
         where: { sceneId: input.sceneId, ...(isGm ? {} : { isVisible: true }) },
@@ -131,12 +130,11 @@ export const tokenRouter = createTRPCRouter({
         where: { id: input.sceneId },
       });
       if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
-      const campaign = await requireMember(
+      const { isGm } = await requireMember(
         ctx.db,
         scene.campaignId,
         ctx.session.user.id,
       );
-      const isGm = campaign.gmId === ctx.session.user.id;
 
       if (isGm || scene.fogLifted) {
         return { fogLifted: true, revealedCells: [] as { x: number; y: number }[] };

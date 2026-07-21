@@ -3,7 +3,7 @@ import { type Prisma } from "generated/prisma";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { requireMember } from "~/server/api/permissions";
+import { isGmOrCoGm, requireMember } from "~/server/api/permissions";
 import { emitToRoom, rooms } from "~/server/socket";
 
 export const overlayRouter = createTRPCRouter({
@@ -56,12 +56,8 @@ export const overlayRouter = createTRPCRouter({
       if (!scene) throw new TRPCError({ code: "NOT_FOUND" });
       await requireMember(ctx.db, scene.campaignId, ctx.session.user.id);
 
-      // own overlay, or GM can delete any
-      const isGm = scene.campaignId
-        ? await ctx.db.campaign
-            .findUnique({ where: { id: scene.campaignId } })
-            .then((c) => c?.gmId === ctx.session.user.id)
-        : false;
+      // own overlay, or GM/co-GM can delete any
+      const isGm = await isGmOrCoGm(ctx.db, scene.campaignId, ctx.session.user.id);
       if (overlay.userId !== ctx.session.user.id && !isGm) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }

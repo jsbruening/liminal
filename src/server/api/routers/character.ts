@@ -55,9 +55,19 @@ export const characterRouter = createTRPCRouter({
       });
       if (!character) throw new TRPCError({ code: "NOT_FOUND" });
       const isOwner = character.ownerId === ctx.session.user.id;
-      const isGmOfSharedCampaign = character.campaigns.some(
+      let isGmOfSharedCampaign = character.campaigns.some(
         (cc) => cc.campaign.gmId === ctx.session.user.id,
       );
+      if (!isOwner && !isGmOfSharedCampaign) {
+        const coGmCount = await ctx.db.campaignMember.count({
+          where: {
+            userId: ctx.session.user.id,
+            isCoGm: true,
+            campaignId: { in: character.campaigns.map((cc) => cc.campaignId) },
+          },
+        });
+        isGmOfSharedCampaign = coGmCount > 0;
+      }
       if (!isOwner && !isGmOfSharedCampaign) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }

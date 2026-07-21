@@ -10,7 +10,7 @@ export default async function AdminUsersPage() {
     redirect("/");
   }
 
-  await api.admin.listPendingUsers.prefetch();
+  await Promise.all([api.admin.listPendingUsers.prefetch(), api.admin.listAllUsers.prefetch()]);
 
   return (
     <HydrateClient>

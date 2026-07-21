@@ -5,6 +5,7 @@ import type DiceBox from "@3d-dice/dice-box";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { api } from "~/trpc/react";
+import { DEFAULT_DICE_THEME } from "~/lib/dice-themes";
 
 export type RollCategory = {
   type: "skill" | "save" | "attack" | "spellAttack" | "spellDamage" | "free";
@@ -65,8 +66,15 @@ export function DiceEngineProvider({
   const pendingModRef = useRef(0);
 
   const rollDice = api.scene.rollDice.useMutation();
+  const diceThemeQuery = api.user.getDiceTheme.useQuery();
 
   useEffect(() => {
+    // Wait for the user's saved theme preference before creating the DiceBox
+    // (it only reads theme once at construction) so it doesn't flash the
+    // default finish before swapping to the real one.
+    if (diceThemeQuery.isLoading) return;
+    const theme = diceThemeQuery.data ?? DEFAULT_DICE_THEME;
+
     setPortalTarget(document.body);
 
     const container = document.createElement("div");
@@ -107,7 +115,7 @@ export function DiceEngineProvider({
           container: `#${CONTAINER_ID}`,
           assetPath: "/assets/dice-box/",
           origin: window.location.origin,
-          theme: "blueGreenMetal",
+          theme,
           scale: 5,
           gravity: 1,
           mass: 1,
@@ -144,7 +152,7 @@ export function DiceEngineProvider({
       resizeObserver.disconnect();
       if (document.body.contains(container)) document.body.removeChild(container);
     };
-  }, []);
+  }, [diceThemeQuery.isLoading, diceThemeQuery.data]);
 
   async function performRoll(rollGroups: string[], mod: number, category: RollCategory) {
     const box = diceBoxRef.current;

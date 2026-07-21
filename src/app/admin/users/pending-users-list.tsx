@@ -10,6 +10,7 @@ import Typography from "@mui/material/Typography";
 
 import { AppNav } from "~/app/_components/app-nav";
 import { api } from "~/trpc/react";
+import { AllUsersList } from "./all-users-list";
 
 export function PendingUsersList() {
   const utils = api.useUtils();
@@ -64,6 +65,8 @@ export function PendingUsersList() {
             </ListItem>
           ))}
         </List>
+
+        <AllUsersList />
       </Box>
     </Box>
   );

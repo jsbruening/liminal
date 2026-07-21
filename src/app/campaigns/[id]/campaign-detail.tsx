@@ -22,6 +22,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 
 import { AppNav } from "~/app/_components/app-nav";
 import { JoinRequestsPanel } from "./join-requests-panel";
+import { MembersPanel } from "./members-panel";
 import { NpcLibraryPanel } from "./npc-library-panel";
 import { useRoomEvents } from "~/lib/use-room-events";
 import { api } from "~/trpc/react";
@@ -298,6 +299,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         {tab === "overview" && (
           <Stack spacing={4}>
             {campaign.isGm && <JoinRequestsPanel campaignId={campaignId} />}
+            {campaign.isGm && <MembersPanel campaignId={campaignId} isOwner={campaign.isOwner} />}
 
             {myCharacters && myCharacters.length > 0 && (
               <Box>
